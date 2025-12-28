@@ -1,5 +1,5 @@
 plugins {
-    id("com.android.library")
+    id("com.android.application")
     id("kotlin-android")
 }
 
@@ -8,7 +8,11 @@ android {
     compileSdk = 34
 
     defaultConfig {
+        applicationId = "com.cloudstream.extensions.dhakaflix"
         minSdk = 21
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
     }
 
     compileOptions {
@@ -18,6 +22,12 @@ android {
 
     kotlinOptions {
         jvmTarget = "1.8"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+        }
     }
 }
 

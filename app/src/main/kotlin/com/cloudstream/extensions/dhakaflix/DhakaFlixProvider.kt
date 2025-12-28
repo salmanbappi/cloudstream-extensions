@@ -5,6 +5,7 @@ import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Document
 import java.net.URLDecoder
 import java.util.regex.Pattern
+import kotlin.text.RegexOption
 
 class DhakaFlixProvider : MainAPI() {
     override var mainUrl = "http://172.16.50.9"
@@ -47,13 +48,13 @@ class DhakaFlixProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         val searchResults = mutableListOf<SearchResponse>()
         
-        servers.map { (serverUrl, serverName) ->
+        servers.forEach { (serverUrl, serverName) ->
             try {
                 val searchUrl = "$serverUrl/$serverName/"
                 val response = app.post(
                     searchUrl,
                     headers = mapOf("Content-Type" to "application/json; charset=utf-8"),
-                    data = mapOf("action" to "get", "search" to mapOf("href" to "/$serverName/", "pattern" to query, "ignorecase" to true))
+                    json = mapOf("action" to "get", "search" to mapOf("href" to "/$serverName/", "pattern" to query, "ignorecase" to true))
                 )
                 
                 val bodyString = response.text
