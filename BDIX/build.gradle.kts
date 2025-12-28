@@ -38,6 +38,8 @@ dependencies {
 
     cloudstream("com.github.recloudstream.cloudstream:-SNAPSHOT")
     
+    implementation(kotlin("stdlib"))
+    implementation("com.github.Blatzar:NiceHttp:0.4.13")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("org.jsoup:jsoup:1.17.2")
 }

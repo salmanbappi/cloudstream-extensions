@@ -21,9 +21,9 @@ class DhakaFlixProvider : MainAPI() {
         "http://172.16.50.7" to "DHAKA-FLIX-7"
     )
 
-    private val sizeRegex = Regex("(\d+\.\d+ [GM]B|\d+ [GM]B).*", RegexOption.IGNORE_CASE)
-    private val ipHttpRegex = Regex("(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s*http", RegexOption.IGNORE_CASE)
-    private val doubleProtocolRegex = Regex("http(s)?://http(s)?://", RegexOption.IGNORE_CASE)
+    private val sizeRegex = Regex("(\\d+\\.\\d+ [GM]B|\\d+ [GM]B).*", RegexOption.IGNORE_CASE)
+    private val ipHttpRegex = Regex("(\\d{1,3}\\.{\\d{1,3}}\\.{\\d{1,3}}\\.{\\d{1,3}})\\s*http", RegexOption.IGNORE_CASE)
+    private val doubleProtocolRegex = Regex("http(s)?:/http(s)?:/", RegexOption.IGNORE_CASE)
     private val multiSlashRegex = Regex("(?<!:)/{2,}")
 
     private fun fixUrl(url: String): String {
@@ -85,10 +85,9 @@ class DhakaFlixProvider : MainAPI() {
                         val thumbSuffix = if (serverName.contains("9")) "a11.jpg" else "a_AL_.jpg"
                         val posterUrl = (url + thumbSuffix).replace(" ", "%20")
                         
-                        val searchResponse = newMovieSearchResponse(title, url, TvType.Movie) {
+                        searchResults.add(newMovieSearchResponse(title, url, TvType.Movie) {
                             this.posterUrl = posterUrl
-                        }
-                        searchResults.add(searchResponse)
+                        })
                     }
                 }
             } catch (e: Exception) {
@@ -129,7 +128,9 @@ class DhakaFlixProvider : MainAPI() {
                 val extracted = extractEpisodes(document)
                 if (extracted.isNotEmpty()) {
                     extracted.forEach {
-                        episodes.add(Episode(it.videoUrl, it.seasonEpisode + " - " + it.episodeName))
+                        episodes.add(newEpisode(it.videoUrl) {
+                            this.name = it.seasonEpisode + " - " + it.episodeName
+                        })
                     }
                 } else {
                     val recEpisodes = parseDirectoryParallel(document, fixedUrl)
@@ -157,7 +158,7 @@ class DhakaFlixProvider : MainAPI() {
         
         if (isVideoFile(url)) {
             callback.invoke(
-                ExtractorLink(
+                newExtractorLink(
                     name,
                     name,
                     url,
@@ -235,7 +236,9 @@ class DhakaFlixProvider : MainAPI() {
         }
 
         files.forEach { (name, url) ->
-            episodes.add(Episode(url, name))
+            episodes.add(newEpisode(url) {
+                this.name = name
+            })
             visited.add(url)
         }
 

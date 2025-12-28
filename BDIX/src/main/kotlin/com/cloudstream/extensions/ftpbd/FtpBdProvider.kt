@@ -66,7 +66,9 @@ class FtpBdProvider : MainAPI() {
             if (href.contains("?") || text.equals("parent directory", true)) return@forEach
             
             if (isVideoFile(href)) {
-                episodes.add(Episode(href, text))
+                episodes.add(newEpisode(href) {
+                    this.name = text
+                })
             }
         }
 
@@ -84,7 +86,7 @@ class FtpBdProvider : MainAPI() {
     ): Boolean {
         val url = fixUrl(data)
         callback.invoke(
-            ExtractorLink(
+            newExtractorLink(
                 name,
                 name,
                 url,
