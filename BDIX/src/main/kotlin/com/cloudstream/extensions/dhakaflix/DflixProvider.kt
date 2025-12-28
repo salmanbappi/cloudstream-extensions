@@ -33,7 +33,7 @@ class DflixProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         login()
         val doc = app.get("$mainUrl/m/${request.data}/$page", cookies = loginCookie ?: emptyMap()).document
-        val home = doc.select("div.card").mapNotNull { toResult(it) }
+        val home = doc.select("div.card").mapNotNull { element -> toResult(element) }
         return newHomePageResponse(request.name, home, true)
     }
 
@@ -50,7 +50,7 @@ class DflixProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         login()
         val doc = app.get("$mainUrl/m/find/$query", cookies = loginCookie ?: emptyMap()).document
-        return doc.select("div.card").mapNotNull { toResult(it) }
+        return doc.select("div.card").mapNotNull { element -> toResult(element) }
     }
 
     override suspend fun load(url: String): LoadResponse? {
