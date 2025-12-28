@@ -1,2 +1,2 @@
-include(":app")
+include(":BDIX")
 rootProject.name = "DhakaFlix-CloudStream"
