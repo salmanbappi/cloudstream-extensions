@@ -1,6 +1,5 @@
 import com.lagradost.cloudstream3.gradle.CloudstreamExtension
 
-// use an integer for version numbers
 version = 1
 
 plugins {
@@ -10,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "com.cloudstream.extensions.dhakaflix"
+    namespace = "com.cloudstream.extensions.ftpbd"
     compileSdk = 34
 
     defaultConfig {
@@ -37,7 +36,7 @@ fun Project.cloudstream(configuration: CloudstreamExtension.() -> Unit) = extens
 cloudstream {
     setRepo("https://github.com/salmanbappi/cloudstream-extensions")
     authors = listOf("salmanbappi")
-    description = "DhakaFlix and FtpBd providers for CloudStream"
+    description = "FtpBd provider for CloudStream"
 }
 
 dependencies {

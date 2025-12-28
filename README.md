@@ -9,7 +9,7 @@ Repository for DhakaFlix and FtpBd providers.
 3. Click on **Add Repository**.
 4. Enter the following URL:
    `https://raw.githubusercontent.com/salmanbappi/cloudstream-extensions/main/repo.json`
-5. Install the **BDIX** extension.
+5. Install the **DhakaFlix**, **FtpBd**, or **Dflix** extension.
 
 ## Shortcut
 

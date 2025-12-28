@@ -1,4 +1,4 @@
-package com.cloudstream.extensions.dhakaflix
+package com.cloudstream.extensions.dflix
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
