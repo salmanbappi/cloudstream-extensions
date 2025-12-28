@@ -3,6 +3,7 @@ package com.cloudstream.extensions.ftpbd
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.app
+import org.jsoup.nodes.Document
 import java.util.regex.Pattern
 import kotlin.text.RegexOption
 
@@ -81,23 +82,55 @@ class FtpBdProvider : MainAPI() {
         val document = app.get(fixedUrl).document
         val title = document.title().replace("Index of", "").trim()
         
+        val poster = document.selectFirst("img[src~=(?i)a11|poster|banner|thumb]")?.attr("abs:src")
+            ?: (fixedUrl + "poster.jpg") // Fallback
+
         val episodes = mutableListOf<Episode>()
-        document.select("a[href]").forEach { link ->
-            val href = link.attr("abs:href")
-            val text = link.text().trim()
-            if (href.contains("?") || text.equals("parent directory", true)) return@forEach
+        val visited = mutableSetOf<String>()
+        
+        parseDirectoryRecursive(document, 3, episodes, visited, fixedUrl)
+        
+        if (episodes.isNotEmpty()) {
+             return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes.sortedBy { it.name }) {
+                 this.posterUrl = poster
+             }
+        }
+        return null
+    }
+
+    private suspend fun parseDirectoryRecursive(document: org.jsoup.nodes.Document, depth: Int, episodes: MutableList<Episode>, visited: MutableSet<String>, currentUrl: String) {
+        if (!visited.add(currentUrl)) return
+
+        val links = document.select("a[href]")
+        val files = mutableListOf<Pair<String, String>>()
+        val dirs = mutableListOf<String>()
+
+        links.forEach { element ->
+            val href = element.attr("abs:href")
+            val text = element.text().trim()
+            if (href.contains("?") || text.equals("parent directory", true) || href.endsWith("../")) return@forEach
             
             if (isVideoFile(href)) {
-                episodes.add(newEpisode(href) {
-                    this.name = text
-                })
+                files.add(text to href)
+            } else if (href.endsWith("/")) {
+                dirs.add(href)
             }
         }
 
-        if (episodes.isNotEmpty()) {
-             return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes)
+        files.forEach { (name, url) ->
+            episodes.add(newEpisode(url) {
+                this.name = name
+            })
         }
-        return null
+
+        if (depth > 0 && files.isEmpty()) { // Only recurse if no files found in current dir (optimization)
+            dirs.forEach { dirUrl ->
+                try {
+                    val doc = app.get(dirUrl).document
+                    parseDirectoryRecursive(doc, depth - 1, episodes, visited, dirUrl)
+                } catch (e: Exception) {}
+            }
+        }
     }
 
     override suspend fun loadLinks(

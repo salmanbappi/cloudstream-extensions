@@ -21,18 +21,24 @@ class DflixProvider : MainAPI() {
         "category/Others" to "Others"
     )
 
-    private var loginCookie: Map<String, String>? = null
+    private var loginCookie: Map<String, String> = emptyMap()
 
     private suspend fun login() {
-        if (loginCookie == null || loginCookie!!.isEmpty()) {
-            val client = app.get("$mainUrl/login/demo", allowRedirects = false)
-            loginCookie = client.cookies
+        if (loginCookie.isEmpty()) {
+            try {
+                val client = app.get("$mainUrl/login/demo", allowRedirects = false)
+                if (client.cookies.isNotEmpty()) {
+                    loginCookie = client.cookies
+                }
+            } catch (e: Exception) {
+                // Log or handle error
+            }
         }
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         login()
-        val doc = app.get("$mainUrl/m/${request.data}/$page", cookies = loginCookie ?: emptyMap()).document
+        val doc = app.get("$mainUrl/m/${request.data}/$page", cookies = loginCookie).document
         val home = doc.select("div.card").mapNotNull { element -> toResult(element) }
         return newHomePageResponse(request.name, home, true)
     }
@@ -49,13 +55,13 @@ class DflixProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         login()
-        val doc = app.get("$mainUrl/m/find/$query", cookies = loginCookie ?: emptyMap()).document
+        val doc = app.get("$mainUrl/m/find/$query", cookies = loginCookie).document
         return doc.select("div.card").mapNotNull { element -> toResult(element) }
     }
 
     override suspend fun load(url: String): LoadResponse? {
         login()
-        val doc = app.get(url, cookies = loginCookie ?: emptyMap()).document
+        val doc = app.get(url, cookies = loginCookie).document
         val title = doc.select(".movie-detail-content h3").first()?.text()?.trim() ?: doc.title()
         val poster = doc.selectFirst(".movie-detail-banner img")?.attr("abs:src")
         val plot = doc.selectFirst(".storyline")?.text()?.trim()
