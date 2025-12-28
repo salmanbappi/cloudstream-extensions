@@ -2,6 +2,7 @@ package com.cloudstream.extensions.ftpbd
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.app
 import java.util.regex.Pattern
 import kotlin.text.RegexOption
 

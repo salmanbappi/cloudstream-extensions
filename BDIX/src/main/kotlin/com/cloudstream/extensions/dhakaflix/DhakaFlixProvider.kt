@@ -2,6 +2,7 @@ package com.cloudstream.extensions.dhakaflix
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
+import com.lagradost.cloudstream3.app
 import org.jsoup.nodes.Document
 import java.net.URLDecoder
 import java.util.regex.Pattern
@@ -60,12 +61,12 @@ class DhakaFlixProvider : MainAPI() {
                 val bodyString = response.text
                 val hostUrl = serverUrl
                 
-                val pattern = Pattern.compile("\"href\":\"([^"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
+                val pattern = Pattern.compile("\"href\":\"([^\"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
                 val matcher = pattern.matcher(bodyString)
                 
                 while (matcher.find()) {
                     var href = matcher.group(1).replace('\\', '/').trim()
-                    href = href.replace(Regex("\\/+"), "/")
+                    href = href.replace(Regex("/+"), "/")
                     
                     var cleanHrefForTitle = href
                     while (cleanHrefForTitle.endsWith("/")) {
@@ -138,7 +139,7 @@ class DhakaFlixProvider : MainAPI() {
                 }
             } else {
                 val recEpisodes = parseDirectoryParallel(document, fixedUrl)
-                episodes.addAll(recRecEpisodes)
+                episodes.addAll(recEpisodes)
             }
 
             return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes) {
