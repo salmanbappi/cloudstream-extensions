@@ -101,12 +101,12 @@ class DflixProvider : MainAPI() {
     ): Boolean {
         callback.invoke(
             newExtractorLink(
-                name,
-                name,
+                source = name,
+                name = name,
                 url = data,
-                referer = mainUrl,
-                type = ExtractorLinkType.VIDEO
-            )
+            ) {
+                this.referer = mainUrl
+            }
         )
         return true
     }

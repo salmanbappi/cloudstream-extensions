@@ -121,7 +121,7 @@ class DhakaFlixProvider : MainAPI() {
                 val matcher = pattern.matcher(bodyString)
                 
                 while (matcher.find()) {
-                    var href = matcher.group(1).replace('\\', '/').trim()
+                    var href = matcher.group(1)!!.replace('\\', '/').trim()
                     href = href.replace(Regex("/+"), "/")
                     
                     var cleanHrefForTitle = href
