@@ -1,0 +1,8 @@
+{
+    "name": "BDIX CloudStream Extensions",
+    "description": "DhakaFlix and FtpBd providers for CloudStream",
+    "manifestVersion": 1,
+    "pluginLists": [
+        "https://raw.githubusercontent.com/salmanbappi/cloudstream-extensions/builds/plugins.json"
+    ]
+}
