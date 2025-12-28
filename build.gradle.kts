@@ -18,21 +18,24 @@ allprojects {
     }
 }
 
-task("make") {
+tasks.register("make") {
     dependsOn(":app:assembleRelease")
     doLast {
-        val buildsDir = file("builds")
+        val buildsDir = File(projectDir, "builds")
         buildsDir.mkdirs()
         
-        val apkFile = file("app/build/outputs/apk/release/app-release-unsigned.apk")
-        if (!apkFile.exists()) {
-            // Try signed if unsigned doesn't exist
-            val signedApk = file("app/build/outputs/apk/release/app-release.apk")
-            if (signedApk.exists()) {
-                signedApk.copyTo(file(buildsDir, "BDIX.cst"), true)
-            }
+        val apkFile = File(projectDir, "app/build/outputs/apk/release/app-release-unsigned.apk")
+        val targetFile = File(buildsDir, "BDIX.cst")
+        
+        if (apkFile.exists()) {
+            apkFile.copyTo(targetFile, true)
         } else {
-            apkFile.copyTo(file(buildsDir, "BDIX.cst"), true)
+            val signedApk = File(projectDir, "app/build/outputs/apk/release/app-release.apk")
+            if (signedApk.exists()) {
+                signedApk.copyTo(targetFile, true)
+            } else {
+                throw GradleException("Could not find generated APK file in app/build/outputs/apk/release/")
+            }
         }
         
         // Generate plugins.json
@@ -52,10 +55,10 @@ task("make") {
           }
         ]
         """.trimIndent()
-        file(buildsDir, "plugins.json").writeText(pluginsJson)
+        File(buildsDir, "plugins.json").writeText(pluginsJson)
     }
 }
 
-task("clean", Delete::class) {
-    delete(rootProject.buildDir)
+tasks.register<Delete>("clean") {
+    delete(rootProject.layout.buildDirectory)
 }
