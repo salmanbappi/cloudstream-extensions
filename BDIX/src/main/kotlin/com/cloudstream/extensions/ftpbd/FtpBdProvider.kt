@@ -3,6 +3,7 @@ package com.cloudstream.extensions.ftpbd
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import java.util.regex.Pattern
+import kotlin.text.RegexOption
 
 class FtpBdProvider : MainAPI() {
     override var mainUrl = "https://server3.ftpbd.net"
