@@ -87,13 +87,12 @@ class FtpBdProvider : MainAPI() {
         val url = fixUrl(data)
         callback.invoke(
             newExtractorLink(
-                name,
-                name,
-                url,
-                "",
-                Qualities.Unknown.value,
-                false
-            )
+                source = name,
+                name = name,
+                url = url
+            ) {
+                this.referer = ""
+            }
         )
         return true
     }

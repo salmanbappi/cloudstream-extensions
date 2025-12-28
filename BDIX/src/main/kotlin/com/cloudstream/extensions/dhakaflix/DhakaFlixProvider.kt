@@ -38,7 +38,7 @@ class DhakaFlixProvider : MainAPI() {
         }
         
         u = ipHttpRegex.replace(u, "$1/http")
-        u = doubleProtocolRegex.replace(u, "http$1://")
+        u = doubleProtocolRegex.replace(u, "http$1://$2")
         u = u.replace(":://://", ":://")
         u = multiSlashRegex.replace(u, "/")
         
@@ -60,12 +60,12 @@ class DhakaFlixProvider : MainAPI() {
                 val bodyString = response.text
                 val hostUrl = serverUrl
                 
-                val pattern = Pattern.compile("\"href\":\"([^\"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
+                val pattern = Pattern.compile("\"href\":\"([^"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
                 val matcher = pattern.matcher(bodyString)
                 
                 while (matcher.find()) {
                     var href = matcher.group(1).replace('\\', '/').trim()
-                    href = href.replace(Regex("/+"), "/")
+                    href = href.replace(Regex("\\/+"), "/")
                     
                     var cleanHrefForTitle = href
                     while (cleanHrefForTitle.endsWith("/")) {
@@ -138,7 +138,7 @@ class DhakaFlixProvider : MainAPI() {
                 }
             } else {
                 val recEpisodes = parseDirectoryParallel(document, fixedUrl)
-                episodes.addAll(recEpisodes)
+                episodes.addAll(recRecEpisodes)
             }
 
             return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes) {
@@ -159,13 +159,12 @@ class DhakaFlixProvider : MainAPI() {
         if (isVideoFile(url)) {
             callback.invoke(
                 newExtractorLink(
-                    name,
-                    name,
-                    url,
-                    "",
-                    Qualities.Unknown.value,
-                    false
-                )
+                    source = name,
+                    name = name,
+                    url = url
+                ) {
+                    this.referer = ""
+                }
             )
             return true
         }
