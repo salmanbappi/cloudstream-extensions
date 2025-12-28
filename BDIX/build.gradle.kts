@@ -15,7 +15,6 @@ android {
 
     defaultConfig {
         minSdk = 21
-        targetSdk = 34
     }
 
     compileOptions {
@@ -25,7 +24,11 @@ android {
 
     kotlinOptions {
         jvmTarget = "1.8"
-        freeCompilerArgs = freeCompilerArgs + "-Xskip-metadata-version-check"
+        freeCompilerArgs = freeCompilerArgs + listOf(
+            "-Xno-call-assertions",
+            "-Xno-param-assertions",
+            "-Xno-receiver-assertions"
+        )
     }
 }
 
