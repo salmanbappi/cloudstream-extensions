@@ -1,5 +1,8 @@
 import com.lagradost.cloudstream3.gradle.CloudstreamExtension
 
+// use an integer for version numbers
+version = 1
+
 plugins {
     id("com.android.library")
     id("kotlin-android")
@@ -12,8 +15,7 @@ android {
 
     defaultConfig {
         minSdk = 21
-        versionCode = 1
-        versionName = "1.0.0"
+        targetSdk = 34
     }
 
     compileOptions {
@@ -44,5 +46,6 @@ dependencies {
     implementation(kotlin("stdlib"))
     implementation("com.github.Blatzar:NiceHttp:0.4.13")
     implementation("androidx.core:core-ktx:1.12.0")
-    implementation("org.jsoup:jsoup:1.17.2")
+    implementation("org.jsoup:jsoup:1.18.1")
+    implementation("com.github.recloudstream.cloudstream:library:-SNAPSHOT")
 }

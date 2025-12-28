@@ -23,8 +23,8 @@ class DhakaFlixProvider : MainAPI() {
     )
 
     private val sizeRegex = Regex("(\\d+\\.\\d+ [GM]B|\\d+ [GM]B).*", RegexOption.IGNORE_CASE)
-    private val ipHttpRegex = Regex("(\\d{1,3}\\.{\\d{1,3}}\\.{\\d{1,3}}\\.{\\d{1,3}})\\s*http", RegexOption.IGNORE_CASE)
-    private val doubleProtocolRegex = Regex("http(s)?:/http(s)?:/", RegexOption.IGNORE_CASE)
+    private val ipHttpRegex = Regex("(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})\\s*http", RegexOption.IGNORE_CASE)
+    private val doubleProtocolRegex = Regex("https?://https?://", RegexOption.IGNORE_CASE)
     private val multiSlashRegex = Regex("(?<!:)/{2,}")
 
     private fun fixUrl(url: String): String {
@@ -39,7 +39,7 @@ class DhakaFlixProvider : MainAPI() {
         }
         
         u = ipHttpRegex.replace(u, "$1/http")
-        u = doubleProtocolRegex.replace(u, "http$1://$2")
+        u = doubleProtocolRegex.replace(u, "http://") // Simplified as lastProtocol handles most cases anyway
         u = u.replace(":://://", ":://")
         u = multiSlashRegex.replace(u, "/")
         
