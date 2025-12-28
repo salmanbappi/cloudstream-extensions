@@ -13,7 +13,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          path: "src"
+
+      - name: Checkout builds
+        uses: actions/checkout@v4
+        with:
+          ref: "builds"
+          path: "builds"
+        continue-on-error: true
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -21,23 +28,28 @@ jobs:
           java-version: '17'
           distribution: 'adopt'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Build with Gradle
-        run: ./gradlew make
+        run: |
+          cd src
+          chmod +x gradlew
+          ./gradlew make makePluginsJson
+          mkdir -p ../dist
+          cp **/build/*.cs3 ../dist/ || true
+          cp build/plugins.json ../dist/ || true
 
       - name: Push to builds branch
         run: |
+          mkdir -p builds
+          cp -r dist/* builds/
+          cd builds
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git checkout --orphan builds
-          git rm -rf .
-          cp -r builds/* .
-          rm -rf builds
+          git init
+          git checkout -b builds
           git add .
           git commit -m "Build $GITHUB_SHA"
+          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
           git push -f origin builds

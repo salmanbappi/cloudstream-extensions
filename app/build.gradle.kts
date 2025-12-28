@@ -1,6 +1,9 @@
+import com.lagradost.cloudstream3.gradle.CloudstreamExtension
+
 plugins {
-    id("com.android.application")
+    id("com.android.library")
     id("kotlin-android")
+    id("com.lagradost.cloudstream3.gradle")
 }
 
 android {
@@ -8,11 +11,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.cloudstream.extensions.dhakaflix"
         minSdk = 21
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
     }
 
     compileOptions {
@@ -23,21 +22,22 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+}
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-        }
-    }
+fun Project.cloudstream(configuration: CloudstreamExtension.() -> Unit) = extensions.getByName<CloudstreamExtension>("cloudstream").configuration()
+
+cloudstream {
+    setRepo("https://github.com/salmanbappi/cloudstream-extensions")
+    authors = listOf("salmanbappi")
+    description = "DhakaFlix and FtpBd providers for CloudStream"
 }
 
 dependencies {
+    val cloudstream by configurations
+    val implementation by configurations
+
+    cloudstream("com.github.recloudstream.cloudstream:-SNAPSHOT")
+    
     implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("com.google.android.material:material:1.11.0")
-    
-    // CloudStream API
-    compileOnly("com.github.recloudstream:cloudstream:pre-release")
-    
     implementation("org.jsoup:jsoup:1.17.2")
 }
