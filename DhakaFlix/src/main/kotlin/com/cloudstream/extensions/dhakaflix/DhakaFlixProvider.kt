@@ -78,10 +78,10 @@ class DhakaFlixProvider : MainAPI() {
         "http://172.16.50.7" to "DHAKA-FLIX-7"
     )
 
-    private val sizeRegex = Regex("(\d+\.\d+ [GM]B|\d+ [GM]B).*", RegexOption.IGNORE_CASE)
-    private val ipHttpRegex = Regex("(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s*http", RegexOption.IGNORE_CASE)
-    private val doubleProtocolRegex = Regex("https?://https?://", RegexOption.IGNORE_CASE)
-    private val multiSlashRegex = Regex("(?<!:)/{2,}")
+    private val sizeRegex = Regex("""(\d+\.\d+ [GM]B|\d+ [GM]B).*""", RegexOption.IGNORE_CASE)
+    private val ipHttpRegex = Regex("""(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s*http""", RegexOption.IGNORE_CASE)
+    private val doubleProtocolRegex = Regex("""https?://https?://""", RegexOption.IGNORE_CASE)
+    private val multiSlashRegex = Regex("""(?<!:)/{2,}""")
 
     private fun fixUrl(url: String): String {
         if (url.isBlank()) return url
@@ -117,7 +117,7 @@ class DhakaFlixProvider : MainAPI() {
                 val bodyString = response.text
                 val hostUrl = serverUrl
                 
-                val pattern = Pattern.compile("\"href\":\"([^"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
+                val pattern = Pattern.compile("\"href\":\"([^\"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
                 val matcher = pattern.matcher(bodyString)
                 
                 while (matcher.find()) {
@@ -278,13 +278,13 @@ class DhakaFlixProvider : MainAPI() {
         val files = mutableListOf<Pair<String, String>>()
         val dirs = mutableListOf<String>()
 
-        links.forEach {
-            val href = it.attr("abs:href")
+        links.forEach { element ->
+            val href = element.attr("abs:href")
             if (href.isNotEmpty() && href !in visited) {
                 if (isVideoFile(href)) {
-                    files.add(it.text().trim() to href)
+                    files.add(element.text().trim() to href)
                 } else {
-                    val attr = it.attr("href")
+                    val attr = element.attr("href")
                     if (attr != "../" && !attr.startsWith("?") && attr.endsWith("/") && !attr.contains("_h5ai")) {
                         dirs.add(href)
                     }
