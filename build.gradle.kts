@@ -21,20 +21,20 @@ allprojects {
 tasks.register("make") {
     dependsOn(":app:assembleRelease")
     doLast {
-        val buildsDir = File(projectDir, "builds")
+        val buildsDir = layout.projectDirectory.dir("builds").asFile
         buildsDir.mkdirs()
         
-        val apkFile = File(projectDir, "app/build/outputs/apk/release/app-release-unsigned.apk")
+        val apkFile = layout.projectDirectory.file("app/build/outputs/apk/release/app-release-unsigned.apk").asFile
         val targetFile = File(buildsDir, "BDIX.cst")
         
         if (apkFile.exists()) {
             apkFile.copyTo(targetFile, true)
         } else {
-            val signedApk = File(projectDir, "app/build/outputs/apk/release/app-release.apk")
+            val signedApk = layout.projectDirectory.file("app/build/outputs/apk/release/app-release.apk").asFile
             if (signedApk.exists()) {
                 signedApk.copyTo(targetFile, true)
             } else {
-                throw GradleException("Could not find generated APK file in app/build/outputs/apk/release/")
+                throw GradleException("Could not find generated APK file")
             }
         }
         
@@ -60,5 +60,5 @@ tasks.register("make") {
 }
 
 tasks.register<Delete>("clean") {
-    delete(rootProject.layout.buildDirectory)
+    delete(layout.buildDirectory)
 }
