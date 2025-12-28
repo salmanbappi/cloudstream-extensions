@@ -78,8 +78,8 @@ class DhakaFlixProvider : MainAPI() {
         "http://172.16.50.7" to "DHAKA-FLIX-7"
     )
 
-    private val sizeRegex = Regex("(\\d+\\.\\d+ [GM]B|\\d+ [GM]B).*", RegexOption.IGNORE_CASE)
-    private val ipHttpRegex = Regex("(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})\\s*http", RegexOption.IGNORE_CASE)
+    private val sizeRegex = Regex("(\d+\.\d+ [GM]B|\d+ [GM]B).*", RegexOption.IGNORE_CASE)
+    private val ipHttpRegex = Regex("(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s*http", RegexOption.IGNORE_CASE)
     private val doubleProtocolRegex = Regex("https?://https?://", RegexOption.IGNORE_CASE)
     private val multiSlashRegex = Regex("(?<!:)/{2,}")
 
@@ -95,7 +95,7 @@ class DhakaFlixProvider : MainAPI() {
         }
         
         u = ipHttpRegex.replace(u, "$1/http")
-        u = doubleProtocolRegex.replace(u, "http://") // Simplified as lastProtocol handles most cases anyway
+        u = doubleProtocolRegex.replace(u, "http://")
         u = u.replace(":://://", ":://")
         u = multiSlashRegex.replace(u, "/")
         
@@ -117,7 +117,7 @@ class DhakaFlixProvider : MainAPI() {
                 val bodyString = response.text
                 val hostUrl = serverUrl
                 
-                val pattern = Pattern.compile("\"href\":\"([^\"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
+                val pattern = Pattern.compile("\"href\":\"([^"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
                 val matcher = pattern.matcher(bodyString)
                 
                 while (matcher.find()) {
@@ -159,51 +159,6 @@ class DhakaFlixProvider : MainAPI() {
         return ignored.any { text.contains(it, ignoreCase = true) }
     }
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val doc = app.get(request.data).document
-        val animeList = mutableListOf<SearchResponse>()
-        
-        val cards = doc.select("div.card")
-        if (cards.isNotEmpty()) {
-            cards.forEach { card ->
-                val link = card.selectFirst("h5 a")
-                val title = link?.text() ?: ""
-                val url = link?.attr("abs:href") ?: ""
-                if (title.isNotEmpty() && url.isNotEmpty()) {
-                    val img = card.selectFirst("img[src~=(?i)a11|a_al|poster|banner|thumb], img:not([src~=(?i)back|folder|parent|icon|/icons/])")
-                    val posterUrl = (img?.attr("abs:data-src")?.takeIf { it.isNotEmpty() } 
-                        ?: img?.attr("abs:data-lazy-src")?.takeIf { it.isNotEmpty() }
-                        ?: img?.attr("abs:src") ?: "").replace(" ", "%20")
-                        
-                    animeList.add(newMovieSearchResponse(title, url, TvType.Movie) {
-                        this.posterUrl = posterUrl
-                    })
-                }
-            }
-        } else {
-            doc.select("a").forEach { element ->
-                val title = element.text()
-                val url = element.attr("abs:href")
-                if (isValidDirectoryItem(title, url)) {
-                    val cleanTitle = if (title.endsWith("/")) title.dropLast(1) else title
-                    val finalUrl = if (url.endsWith("/")) url else "$url/"
-                    val posterUrl = (finalUrl + "a_AL_.jpg").replace(" ", "%20")
-                    
-                    animeList.add(newMovieSearchResponse(cleanTitle, url, TvType.Movie) {
-                        this.posterUrl = posterUrl
-                    })
-                }
-            }
-        }
-        
-        return newHomePageResponse(request.name, animeList)
-    }
-
-    private fun isIgnored(text: String): Boolean {
-        val ignored = listOf("Parent Directory", "modern browsers", "Name", "Last modified", "Size", "Description", "Index of", "JavaScript", "powered by", "_h5ai")
-        return ignored.any { text.contains(it, ignoreCase = true) }
-    }
-
     override suspend fun load(url: String): LoadResponse? {
         val fixedUrl = fixUrl(url)
         val document = app.get(fixedUrl).document
@@ -237,7 +192,19 @@ class DhakaFlixProvider : MainAPI() {
                     }
                 } else {
                     val recEpisodes = parseDirectoryParallel(document, fixedUrl)
-                    episodes.addAll(rec
+                    episodes.addAll(recEpisodes)
+                }
+            } else {
+                val recEpisodes = parseDirectoryParallel(document, fixedUrl)
+                episodes.addAll(recEpisodes)
+            }
+
+            return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes) {
+                this.posterUrl = poster
+                this.plot = desc
+            }
+        }
+    }
 
     override suspend fun loadLinks(
         data: String,
