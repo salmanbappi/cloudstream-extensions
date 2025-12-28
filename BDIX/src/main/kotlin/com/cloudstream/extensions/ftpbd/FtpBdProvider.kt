@@ -13,6 +13,27 @@ class FtpBdProvider : MainAPI() {
     override var lang = "bn"
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
 
+    override val mainPage = mainPageOf(
+        "https://server3.ftpbd.net/FTP-3/Hindi%20Movies/2025/" to "Hindi Movies (2025)",
+        "https://server3.ftpbd.net/FTP-3/English%20Movies/2025/" to "English Movies (2025)",
+        "https://server3.ftpbd.net/FTP-3/Animation%20Movies/" to "Animation Movies",
+        "https://server3.ftpbd.net/FTP-1/TV%20Series/" to "TV Series",
+        "https://server3.ftpbd.net/FTP-3/South%20Indian%20Movies/" to "South Indian Movies"
+    )
+
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val doc = app.get(request.data).document
+        val items = doc.select("td.fb-n a, div.entry-content a, table tr a")
+        val animeList = items.mapNotNull { link ->
+            val title = link.text().trim()
+            val url = fixUrl(link.attr("abs:href"))
+            if (!url.contains("?") && !url.endsWith("..") && title.isNotEmpty()) {
+                newMovieSearchResponse(title, url, TvType.Movie)
+            } else null
+        }
+        return newHomePageResponse(request.name, animeList)
+    }
+
     private val baseDomain = "ftpbd.net"
 
     private fun fixUrl(url: String): String {

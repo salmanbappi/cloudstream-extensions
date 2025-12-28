@@ -10,5 +10,6 @@ class BDIXPlugin: Plugin() {
     override fun load(context: Context) {
         registerMainAPI(DhakaFlixProvider())
         registerMainAPI(FtpBdProvider())
+        registerMainAPI(DflixProvider())
     }
 }

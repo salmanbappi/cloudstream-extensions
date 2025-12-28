@@ -15,6 +15,62 @@ class DhakaFlixProvider : MainAPI() {
     override var lang = "bn"
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
 
+    override val mainPage = mainPageOf(
+        "http://172.16.50.14/DHAKA-FLIX-14/Hindi%20Movies/%282025%29/" to "Hindi Movies (2025)",
+        "http://172.16.50.7/DHAKA-FLIX-7/English%20Movies/%282025%29/" to "English Movies (2025)",
+        "http://172.16.50.14/DHAKA-FLIX-14/English%20Movies%20%281080p%29/%282025%29%201080p/" to "English Movies 1080p (2025)",
+        "http://172.16.50.14/DHAKA-FLIX-14/SOUTH%20INDIAN%20MOVIES/South%20Movies/2025/" to "South Indian Movies (2025)",
+        "http://172.16.50.12/DHAKA-FLIX-12/TV-WEB-Series/" to "TV & Web Series",
+        "http://172.16.50.9/DHAKA-FLIX-9/Anime%20%26%20Cartoon%20TV%20Series/" to "Anime & Cartoon"
+    )
+
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val doc = app.get(request.data).document
+        val animeList = mutableListOf<SearchResponse>()
+        
+        val cards = doc.select("div.card")
+        if (cards.isNotEmpty()) {
+            cards.forEach { card ->
+                val link = card.selectFirst("h5 a")
+                val title = link?.text() ?: ""
+                val url = link?.attr("abs:href") ?: ""
+                if (title.isNotEmpty() && url.isNotEmpty()) {
+                    val img = card.selectFirst("img[src~=(?i)a11|a_al|poster|banner|thumb], img:not([src~=(?i)back|folder|parent|icon|/icons/])")
+                    val posterUrl = (img?.attr("abs:data-src")?.takeIf { it.isNotEmpty() } 
+                        ?: img?.attr("abs:data-lazy-src")?.takeIf { it.isNotEmpty() }
+                        ?: img?.attr("abs:src") ?: "").replace(" ", "%20")
+                        
+                    animeList.add(newMovieSearchResponse(title, url, TvType.Movie) {
+                        this.posterUrl = posterUrl
+                    })
+                }
+            }
+        } else {
+            doc.select("a").forEach { element ->
+                val title = element.text()
+                val url = element.attr("abs:href")
+                if (isValidDirectoryItem(title, url)) {
+                    val cleanTitle = if (title.endsWith("/")) title.dropLast(1) else title
+                    val finalUrl = if (url.endsWith("/")) url else "$url/"
+                    val posterUrl = (finalUrl + "a_AL_.jpg").replace(" ", "%20")
+                    
+                    animeList.add(newMovieSearchResponse(cleanTitle, url, TvType.Movie) {
+                        this.posterUrl = posterUrl
+                    })
+                }
+            }
+        }
+        
+        return newHomePageResponse(request.name, animeList)
+    }
+
+    private fun isValidDirectoryItem(title: String, url: String): Boolean {
+        val lowerTitle = title.lowercase()
+        if (isIgnored(lowerTitle)) return false
+        if (url.contains("../") || url.contains("?")) return false
+        return true
+    }
+
     private val servers = listOf(
         "http://172.16.50.14" to "DHAKA-FLIX-14",
         "http://172.16.50.12" to "DHAKA-FLIX-12",
@@ -117,7 +173,8 @@ class DhakaFlixProvider : MainAPI() {
 
         if (mediaType == "m") {
             // Movie
-            return newMovieLoadResponse(title, fixedUrl, TvType.Movie, fixedUrl) {
+            val dataUrl = document.select("div.col-md-12 a.btn, .movie-buttons a, a[href*=/m/lazyload/], a[href*=/s/lazyload/], .download-link a").lastOrNull()?.attr("abs:href") ?: fixedUrl
+            return newMovieLoadResponse(title, fixedUrl, TvType.Movie, dataUrl) {
                 this.posterUrl = poster
                 this.plot = desc
             }
