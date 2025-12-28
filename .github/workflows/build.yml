@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,16 +42,30 @@ jobs:
           cp **/build/*.cs3 ../dist/ || true
           cp build/plugins.json ../dist/ || true
 
-      - name: Push to builds branch
-        run: |
-          mkdir -p builds
-          cp -r dist/* builds/
-          cd builds
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          git init
-          git checkout -b builds
-          git add .
-          git commit -m "Build $GITHUB_SHA"
-          git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
-          git push -f origin builds
+            - name: Push to builds branch
+
+              run: |
+
+                mkdir -p final_builds
+
+                cp -r dist/* final_builds/
+
+                cd final_builds
+
+                git init
+
+                git config user.name "GitHub Actions"
+
+                git config user.email "actions@github.com"
+
+                git checkout -b builds
+
+                git add .
+
+                git commit -m "Build $GITHUB_SHA"
+
+                git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+
+                git push -f origin builds
+
+      
