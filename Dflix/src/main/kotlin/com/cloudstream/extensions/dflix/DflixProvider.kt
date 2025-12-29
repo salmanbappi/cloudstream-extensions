@@ -129,11 +129,11 @@ class DflixProvider : MainAPI() {
                 val h5 = element.selectFirst("h5") ?: return@mapNotNull null
                 val epUrl = h5.selectFirst("a")?.attr("href")?.let { fixUrl(it, fixedUrl) } ?: return@mapNotNull null
                 val epNameRaw = element.select("h4").text()
-                val epName = epNameRaw.replace(Regex("(?i)(1080P|STREAM|720P|WEB-DL|4K|DUAL|ESUB).*)"), "").trim()
+                val epName = epNameRaw.replace(Regex("(?i)(1080P|STREAM|720P|WEB-DL|4K|DUAL|ESUB).*"), "").trim()
                 
                 val seasonEpStr = h5.text()
-                val seasonMatch = Regex("(?i)S(\d+)").find(seasonEpStr)
-                val epMatch = Regex("(?i)EP\s*(\d+)").find(seasonEpStr)
+                val seasonMatch = Regex("(?i)S(\\d+)").find(seasonEpStr)
+                val epMatch = Regex("(?i)EP\\s*(\\d+)").find(seasonEpStr)
                 
                 val season = seasonMatch?.groupValues?.get(1)?.toIntOrNull()
                 val episode = epMatch?.groupValues?.get(1)?.toIntOrNull()
