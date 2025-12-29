@@ -54,7 +54,7 @@ class DflixProvider : MainAPI() {
         if (!u.startsWith("http")) {
             u = if (u.startsWith("//")) "https:$u"
             else if (u.startsWith("/")) {
-                val root = baseUrl.split("/").take(3).joinToString("/")
+                val root = baseUrl.substringBefore("/", "https://").ifEmpty { "https://" } + "//" + baseUrl.substringAfter("//").substringBefore("/")
                 "$root$u"
             }
             else {
@@ -62,7 +62,7 @@ class DflixProvider : MainAPI() {
                 "$root$u"
             }
         }
-        return u.replace(" ", "%20")
+        return u.replace(" ", "%20").replace(Regex("(?<!:)/{2,}"), "/")
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
@@ -77,7 +77,7 @@ class DflixProvider : MainAPI() {
             doc = app.get(url, cookies = loginCookie, headers = commonHeaders).document
         }
 
-        val home = doc.select("div.card, div.fgrid, div.col-xl-3").mapNotNull { element -> toResult(element) }
+        val home = doc.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard").mapNotNull { element -> toResult(element) }
         return newHomePageResponse(request.name, home, true)
     }
 
@@ -85,7 +85,25 @@ class DflixProvider : MainAPI() {
         val aTag = post.selectFirst("a") ?: return null
         val url = fixUrl(aTag.attr("href"))
         
-        val title = (post.selectFirst("h3") ?: post.selectFirst(".ftitle") ?: post.selectFirst(".fdetails"))?.text()?.trim() ?: ""
+        var title = ""
+        val h3 = post.selectFirst("h3")
+        val ftitle = post.selectFirst(".ftitle")
+        val fdetails = post.selectFirst(".fdetails")
+        
+        if (h3 != null) {
+            title = h3.text()
+        } else if (ftitle != null) {
+            val ftitleText = ftitle.text().trim()
+            if (ftitleText.contains(Regex("(?i)S\\d+\\s*:\\s*E\\d+")))
+                title = fdetails?.text() ?: ftitleText
+            else {
+                title = ftitleText
+            }
+        } else if (fdetails != null) {
+            title = fdetails.text()
+        }
+        
+        title = title.replace(Regex("\\(\\(\d+\\)\\)"), "").replace(Regex("\\(\\d+\\)"), "").trim()
         if (title.isEmpty()) return null
         
         val poster = fixUrl(post.selectFirst("img")?.attr("src") ?: "")
@@ -104,13 +122,14 @@ class DflixProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         login()
-        val movieDoc = app.get(fixUrl("/m/find/$query"), cookies = loginCookie, headers = commonHeaders).document
-        val seriesDoc = app.get(fixUrl("/s/find/$query"), cookies = loginCookie, headers = commonHeaders).document
+        val movieDoc = try { app.get(fixUrl("/m/find/$query"), cookies = loginCookie, headers = commonHeaders).document } catch(e: Exception) { null }
+        val seriesDoc = try { app.get(fixUrl("/s/find/$query"), cookies = loginCookie, headers = commonHeaders).document } catch(e: Exception) { null }
         
-        val movieResults = movieDoc.select("div.card, div.fgrid, div.col-xl-3").mapNotNull { toResult(it) }
-        val seriesResults = seriesDoc.select("div.card, div.fgrid, div.col-xl-3").mapNotNull { toResult(it) }
+        val results = mutableListOf<SearchResponse>()
+        movieDoc?.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard")?.forEach { results.add(toResult(it) ?: return@forEach) }
+        seriesDoc?.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard")?.forEach { results.add(toResult(it) ?: return@forEach) }
         
-        return (movieResults + seriesResults).distinctBy { it.url }
+        return results.distinctBy { it.url }
     }
 
     override suspend fun load(url: String): LoadResponse? {
