@@ -53,7 +53,7 @@ class DflixProvider : MainAPI() {
         }
         // One more check to be safe
         if (!checkLogin(doc)) {
-             throw ErrorResponse("Login failed. Please try again later.")
+             throw Exception("Login failed. Please try again later.")
         }
 
         val home = doc.select("div.card").mapNotNull { element -> toResult(element) }
