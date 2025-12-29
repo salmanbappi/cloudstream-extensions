@@ -139,7 +139,7 @@ class DhakaFlixProvider : MainAPI() {
                         )
                         
                         val bodyString = response.text
-                        val pattern = Pattern.compile("\"href\":\"([^"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
+                        val pattern = Pattern.compile("\"href\":\"([^\"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
                         val matcher = pattern.matcher(bodyString)
                         
                         while (matcher.find()) {
