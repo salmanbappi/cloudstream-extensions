@@ -1,0 +1,44 @@
+[
+    {
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/salmanbappi/cloudstream-extensions",
+        "fileSize": 17729,
+        "status": 3,
+        "authors": [
+            "salmanbappi"
+        ],
+        "version": 17,
+        "internalName": "Dflix",
+        "description": "Dflix provider for CloudStream",
+        "url": "https://raw.githubusercontent.com/salmanbappi/cloudstream-extensions/builds/Dflix.cs3",
+        "name": "Dflix"
+    },
+    {
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/salmanbappi/cloudstream-extensions",
+        "fileSize": 21941,
+        "status": 3,
+        "authors": [
+            "salmanbappi"
+        ],
+        "version": 18,
+        "internalName": "DhakaFlix",
+        "description": "DhakaFlix provider for CloudStream",
+        "url": "https://raw.githubusercontent.com/salmanbappi/cloudstream-extensions/builds/DhakaFlix.cs3",
+        "name": "DhakaFlix"
+    },
+    {
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/salmanbappi/cloudstream-extensions",
+        "fileSize": 14021,
+        "status": 3,
+        "authors": [
+            "salmanbappi"
+        ],
+        "version": 16,
+        "internalName": "FtpBd",
+        "description": "FtpBd provider for CloudStream",
+        "url": "https://raw.githubusercontent.com/salmanbappi/cloudstream-extensions/builds/FtpBd.cs3",
+        "name": "FtpBd"
+    }
+]
