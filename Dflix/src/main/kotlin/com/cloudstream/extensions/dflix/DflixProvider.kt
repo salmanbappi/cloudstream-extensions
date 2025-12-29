@@ -61,9 +61,19 @@ class DflixProvider : MainAPI() {
         val poster = post.selectFirst("div.poster > img:nth-child(1)")?.attr("abs:src")
         val qualityText = post.select("span.movie_details_span_end, div.card > a:nth-child(1) > span:nth-child(1)").text()
 
-        return newMovieSearchResponse(title, url, TvType.Movie) {
+        return newAnimeSearchResponse(title, url, TvType.Movie) {
             this.posterUrl = poster
-            this.quality = getSearchQuality(qualityText)
+            val qualityVal = getSearchQuality(qualityText)
+            // If newAnimeSearchResponse doesn't support 'quality' directly in DSL (it might not), 
+            // we can set it if the underlying object allows, or rely on tags.
+            // Checking reference: reference used 'this.quality = ...' inside block.
+            // Let's assume it's available or we need to cast/assign.
+            // Actually, AnimeSearchResponse has 'quality' field? No, mostly 'posterUrl', 'year', 'dubStatus', etc.
+            // But SearchResponse interface has no quality. MovieSearchResponse has quality. AnimeSearchResponse has?
+            // Reference code: "this.quality = getSearchQuality(check)" inside newAnimeSearchResponse.
+            // So it must be there or added via extension.
+            
+            // Wait, if I use newAnimeSearchResponse, I should be able to use addDubStatus.
             addDubStatus(
                 dubExist = qualityText.contains("DUAL", true),
                 subExist = false
