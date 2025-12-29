@@ -1,9 +1,7 @@
+version = 3
+
 android {
     namespace = "com.cloudstream.extensions.ftpbd"
-    defaultConfig {
-        versionCode = 2
-        versionName = "1.0.1"
-    }
 }
 
 cloudstream {
