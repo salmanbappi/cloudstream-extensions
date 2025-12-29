@@ -23,8 +23,8 @@ class DflixProvider : MainAPI() {
 
     private var loginCookie: Map<String, String> = emptyMap()
 
-    private suspend fun login() {
-        if (loginCookie.isEmpty()) {
+    private suspend fun login(force: Boolean = false) {
+        if (loginCookie.isEmpty() || force) {
             try {
                 val client = app.get("$mainUrl/login/demo", allowRedirects = false)
                 if (client.cookies.isNotEmpty()) {
@@ -36,9 +36,22 @@ class DflixProvider : MainAPI() {
         }
     }
 
+    private suspend fun checkLogin(document: org.jsoup.nodes.Document): Boolean {
+        // If title contains "Login" or we are on the login page
+        if (document.title().contains("Login", ignoreCase = true) || document.select("input[name=username]").isNotEmpty()) {
+            return false
+        }
+        return true
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         login()
-        val doc = app.get("$mainUrl/m/${request.data}/$page", cookies = loginCookie).document
+        var doc = app.get("$mainUrl/m/${request.data}/$page", cookies = loginCookie).document
+        if (!checkLogin(doc)) {
+            login(true)
+            doc = app.get("$mainUrl/m/${request.data}/$page", cookies = loginCookie).document
+        }
+
         val home = doc.select("div.card").mapNotNull { element -> toResult(element) }
         return newHomePageResponse(request.name, home, true)
     }
@@ -55,19 +68,32 @@ class DflixProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         login()
-        val doc = app.get("$mainUrl/m/find/$query", cookies = loginCookie).document
+        var doc = app.get("$mainUrl/m/find/$query", cookies = loginCookie).document
+        if (!checkLogin(doc)) {
+            login(true)
+            doc = app.get("$mainUrl/m/find/$query", cookies = loginCookie).document
+        }
         return doc.select("div.card").mapNotNull { element -> toResult(element) }
     }
 
     override suspend fun load(url: String): LoadResponse? {
         login()
-        val doc = app.get(url, cookies = loginCookie).document
+        var doc = app.get(url, cookies = loginCookie).document
+        if (!checkLogin(doc)) {
+            login(true)
+            doc = app.get(url, cookies = loginCookie).document
+        }
+
         val title = doc.select(".movie-detail-content h3").first()?.text()?.trim() ?: doc.title()
         val poster = doc.selectFirst(".movie-detail-banner img")?.attr("abs:src")
         val plot = doc.selectFirst(".storyline")?.text()?.trim()
         
-        // Movie link extraction
-        val dataUrl = doc.select("div.col-md-12 a.btn-download, a.btn-download, .download-link a").lastOrNull()?.attr("abs:href")
+        // Movie link extraction: look for "Download" button or video file extension
+        val dataUrl = doc.select("a.btn").find { 
+            val href = it.attr("href").lowercase()
+            val text = it.text().lowercase()
+            (href.endsWith(".mkv") || href.endsWith(".mp4") || text.contains("download"))
+        }?.attr("abs:href")
         
         if (dataUrl != null && !dataUrl.contains("/m/view/")) {
             return newMovieLoadResponse(title, url, TvType.Movie, dataUrl) {
@@ -76,21 +102,56 @@ class DflixProvider : MainAPI() {
             }
         }
         
-        // If it's a series
-        val episodes = doc.select("div.card.episode-item, .download-link").mapNotNull { element ->
-            val epName = element.select("h5").text().trim()
-            val epUrl = element.select("a").attr("abs:href")
+        // Series Episode Extraction
+        // Selector: div.card that contains h5 (episode number/link)
+        val episodes = doc.select("div.card").mapNotNull { element ->
+            val h5 = element.selectFirst("h5") ?: return@mapNotNull null
+            val epUrl = h5.selectFirst("a")?.attr("abs:href") ?: return@mapNotNull null
+            
+            // Extract Name: The h2 > a > h4 contains the title
+            val epNameRaw = element.select("h2 a h4").text()
+            // Clean up "1080P STREAM" badges if captured in text (jsoup .text() usually omits tags but includes content)
+            // The HTML: <h4>The Peace Problem <br> <div class="badge...">...</div></h4>
+            // .text() might result in "The Peace Problem 1080P STREAM"
+            // Let's try to get ownText of h4 if possible, or just take the full text and clean.
+            val epName = epNameRaw.replace(Regex("(1080P|STREAM|720P|WEB-DL|4K).*"), "").trim()
+            
+            // Extract Season/Episode from h5 text "S3 | EP 1"
+            val seasonEpStr = h5.text() // "S3 | EP 1  1.15 GB"
+            val seasonMatch = Regex("S(\\d+)").find(seasonEpStr)
+            val epMatch = Regex("EP\\s*(\\d+)").find(seasonEpStr)
+            
+            val season = seasonMatch?.groupValues?.get(1)?.toIntOrNull()
+            val episode = epMatch?.groupValues?.get(1)?.toIntOrNull()
+
             if (epUrl.isNotEmpty()) {
                 newEpisode(epUrl) {
-                    this.name = epName
+                    this.name = if (epName.isNotEmpty()) epName else seasonEpStr
+                    this.season = season
+                    this.episode = episode
                 }
             } else null
         }
         
-        return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
-            this.posterUrl = poster
-            this.plot = plot
+        if (episodes.isNotEmpty()) {
+             return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+                this.posterUrl = poster
+                this.plot = plot
+            }
         }
+        
+        // Fallback: if no episodes and no movie link found, maybe it's a Movie page where selector failed?
+        // But if we are here, we likely failed. Return null or throw?
+        // Let's check for "Stream" or "WEB Play" buttons as last resort for Movie
+        val streamUrl = doc.select("a.btn").find { it.text().contains("Stream", true) || it.text().contains("Play", true) }?.attr("abs:href")
+        if (streamUrl != null) {
+             return newMovieLoadResponse(title, url, TvType.Movie, streamUrl) {
+                this.posterUrl = poster
+                this.plot = plot
+            }
+        }
+
+        return null
     }
 
     override suspend fun loadLinks(
