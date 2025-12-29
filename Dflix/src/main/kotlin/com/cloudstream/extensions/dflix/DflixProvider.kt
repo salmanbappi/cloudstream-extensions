@@ -103,7 +103,7 @@ class DflixProvider : MainAPI() {
             title = fdetails.text()
         }
         
-        title = title.replace(Regex("\\(\\(\d+\\)\\)"), "").replace(Regex("\\(\\d+\\)"), "").trim()
+        title = title.replace(Regex("\\(\\(\\d+\\)\\)"), "").replace(Regex("\\(\\d+\\)"), "").trim()
         if (title.isEmpty()) return null
         
         val poster = fixUrl(post.selectFirst("img")?.attr("src") ?: "")
