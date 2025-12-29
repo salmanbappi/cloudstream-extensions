@@ -44,14 +44,25 @@ class DflixProvider : MainAPI() {
         return true
     }
 
+    private fun fixUrl(url: String): String {
+        if (url.isBlank()) return url
+        var u = url.trim()
+        if (!u.startsWith("http")) {
+            u = if (u.startsWith("//")) "https:$u"
+            else if (u.startsWith("/")) "$mainUrl$u"
+            else "$mainUrl/$u"
+        }
+        return u.replace(" ", "%20")
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         login()
-        var doc = app.get("$mainUrl/m/${request.data}/$page", cookies = loginCookie).document
+        val url = fixUrl("/m/${request.data}/$page")
+        var doc = app.get(url, cookies = loginCookie).document
         if (!checkLogin(doc)) {
             login(true)
-            doc = app.get("$mainUrl/m/${request.data}/$page", cookies = loginCookie).document
+            doc = app.get(url, cookies = loginCookie).document
         }
-        // One more check to be safe
         if (!checkLogin(doc)) {
              throw Exception("Login failed. Please try again later.")
         }
@@ -61,24 +72,13 @@ class DflixProvider : MainAPI() {
     }
 
     private fun toResult(post: Element): SearchResponse? {
-        val url = post.selectFirst("a")?.attr("abs:href") ?: return null
+        val url = fixUrl(post.selectFirst("a")?.attr("href") ?: return null)
         val title = post.select("div.card > div:nth-child(2) > h3:nth-child(1)").text().trim()
-        val poster = post.selectFirst("div.poster > img:nth-child(1)")?.attr("abs:src")
+        val poster = fixUrl(post.selectFirst("div.poster > img:nth-child(1)")?.attr("src") ?: "")
         val qualityText = post.select("span.movie_details_span_end, div.card > a:nth-child(1) > span:nth-child(1)").text()
 
         return newAnimeSearchResponse(title, url, TvType.Movie) {
             this.posterUrl = poster
-            val qualityVal = getSearchQuality(qualityText)
-            // If newAnimeSearchResponse doesn't support 'quality' directly in DSL (it might not), 
-            // we can set it if the underlying object allows, or rely on tags.
-            // Checking reference: reference used 'this.quality = ...' inside block.
-            // Let's assume it's available or we need to cast/assign.
-            // Actually, AnimeSearchResponse has 'quality' field? No, mostly 'posterUrl', 'year', 'dubStatus', etc.
-            // But SearchResponse interface has no quality. MovieSearchResponse has quality. AnimeSearchResponse has?
-            // Reference code: "this.quality = getSearchQuality(check)" inside newAnimeSearchResponse.
-            // So it must be there or added via extension.
-            
-            // Wait, if I use newAnimeSearchResponse, I should be able to use addDubStatus.
             addDubStatus(
                 dubExist = qualityText.contains("DUAL", true),
                 subExist = false
@@ -88,48 +88,48 @@ class DflixProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         login()
-        var doc = app.get("$mainUrl/m/find/$query", cookies = loginCookie).document
-        if (!checkLogin(doc)) {
-            login(true)
-            doc = app.get("$mainUrl/m/find/$query", cookies = loginCookie).document
-        }
-        return doc.select("div.card").mapNotNull { element -> toResult(element) }
-    }
-
-    override suspend fun load(url: String): LoadResponse? {
-        login()
+        val url = fixUrl("/m/find/$query")
         var doc = app.get(url, cookies = loginCookie).document
         if (!checkLogin(doc)) {
             login(true)
             doc = app.get(url, cookies = loginCookie).document
         }
+        return doc.select("div.card").mapNotNull { element -> toResult(element) }
+    }
+
+    override suspend fun load(url: String): LoadResponse? {
+        val fixedUrl = fixUrl(url)
+        login()
+        var doc = app.get(fixedUrl, cookies = loginCookie).document
+        if (!checkLogin(doc)) {
+            login(true)
+            doc = app.get(fixedUrl, cookies = loginCookie).document
+        }
 
         val title = doc.select(".movie-detail-content h3").first()?.text()?.trim() ?: doc.title()
-        val poster = doc.selectFirst(".movie-detail-banner img")?.attr("abs:src")
+        val poster = fixUrl(doc.selectFirst(".movie-detail-banner img")?.attr("src") ?: "")
         val plot = doc.selectFirst(".storyline")?.text()?.trim()
         val size = doc.select(".badge.badge-fill").text()
         val tags = doc.select(".ganre-wrapper > a").map { it.text().replace(",", "") }
         val actors = doc.select("div.col-lg-2").map { actor(it) }
         val recommendations = doc.select("div.badge-outline > a").mapNotNull { 
-            // This selector in reference code seems specific, ensuring it doesn't break
-             val recUrl = it.attr("abs:href")
+             val recUrl = fixUrl(it.attr("href"))
              val recName = it.text()
              if(recUrl.isNotEmpty()) {
                  newMovieSearchResponse(recName, recUrl, TvType.Movie) {
-                     this.posterUrl = poster // Reusing main poster as fallback or if appropriate
+                     this.posterUrl = poster 
                  }
              } else null
         }
         
-        // Movie link extraction
         val dataUrl = doc.select("a.btn").find { 
             val href = it.attr("href").lowercase()
             val text = it.text().lowercase()
             (href.endsWith(".mkv") || href.endsWith(".mp4") || text.contains("download"))
-        }?.attr("abs:href")
+        }?.attr("href")?.let { fixUrl(it) }
         
         if (dataUrl != null && !dataUrl.contains("/m/view/")) {
-            return newMovieLoadResponse(title, url, TvType.Movie, dataUrl) {
+            return newMovieLoadResponse(title, fixedUrl, TvType.Movie, dataUrl) {
                 this.posterUrl = poster
                 this.plot = "<b>$size</b><br><br>$plot"
                 this.tags = tags
@@ -138,10 +138,9 @@ class DflixProvider : MainAPI() {
             }
         }
         
-        // Series Episode Extraction
         val episodes = doc.select("div.card").mapNotNull { element ->
             val h5 = element.selectFirst("h5") ?: return@mapNotNull null
-            val epUrl = h5.selectFirst("a")?.attr("abs:href") ?: return@mapNotNull null
+            val epUrl = fixUrl(h5.selectFirst("a")?.attr("href") ?: return@mapNotNull null)
             val epNameRaw = element.select("h2 a h4").text()
             val epName = epNameRaw.replace(Regex("(1080P|STREAM|720P|WEB-DL|4K).*"), "").trim()
             val seasonEpStr = h5.text()
@@ -161,7 +160,7 @@ class DflixProvider : MainAPI() {
         }
         
         if (episodes.isNotEmpty()) {
-             return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+             return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.plot = plot
                 this.tags = tags
@@ -170,9 +169,9 @@ class DflixProvider : MainAPI() {
             }
         }
         
-        val streamUrl = doc.select("a.btn").find { it.text().contains("Stream", true) || it.text().contains("Play", true) }?.attr("abs:href")
+        val streamUrl = doc.select("a.btn").find { it.text().contains("Stream", true) || it.text().contains("Play", true) }?.attr("href")?.let { fixUrl(it) }
         if (streamUrl != null) {
-             return newMovieLoadResponse(title, url, TvType.Movie, streamUrl) {
+             return newMovieLoadResponse(title, fixedUrl, TvType.Movie, streamUrl) {
                 this.posterUrl = poster
                 this.plot = plot
                 this.tags = tags
@@ -186,7 +185,7 @@ class DflixProvider : MainAPI() {
 
     private fun actor(post: Element): ActorData {
         val html = post.select("div.col-lg-2 > a:nth-child(1) > img:nth-child(1)")
-        val img = html.attr("abs:src")
+        val img = fixUrl(html.attr("src"))
         val name = html.attr("alt")
         return ActorData(
             actor = Actor(name, img), 

@@ -8,26 +8,34 @@ import java.util.regex.Pattern
 import kotlin.text.RegexOption
 
 class FtpBdProvider : MainAPI() {
-    override var mainUrl = "https://server3.ftpbd.net"
+    override var mainUrl = "http://server3.ftpbd.net"
     override var name = "FtpBd"
     override val hasMainPage = true
     override var lang = "bn"
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
 
     override val mainPage = mainPageOf(
-        "https://server3.ftpbd.net/FTP-3/Hindi%20Movies/2025/" to "Hindi Movies (2025)",
-        "https://server3.ftpbd.net/FTP-3/English%20Movies/2025/" to "English Movies (2025)",
-        "https://server3.ftpbd.net/FTP-3/Animation%20Movies/" to "Animation Movies",
-        "https://server3.ftpbd.net/FTP-1/TV%20Series/" to "TV Series",
-        "https://server3.ftpbd.net/FTP-3/South%20Indian%20Movies/" to "South Indian Movies"
+        "http://server3.ftpbd.net/FTP-3/Hindi%20Movies/2025/" to "Hindi Movies (2025)",
+        "http://server3.ftpbd.net/FTP-3/English%20Movies/2025/" to "English Movies (2025)",
+        "http://server3.ftpbd.net/FTP-3/Animation%20Movies/" to "Animation Movies",
+        "http://server3.ftpbd.net/FTP-1/TV%20Series/" to "TV Series",
+        "http://server3.ftpbd.net/FTP-3/South%20Indian%20Movies/" to "South Indian Movies"
+    )
+
+    private val commonHeaders = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val doc = app.get(request.data).document
+        val doc = try {
+            app.get(request.data, headers = commonHeaders, timeout = 10).document
+        } catch (e: Exception) {
+            return newHomePageResponse(request.name, emptyList())
+        }
         val items = doc.select("td.fb-n a, div.entry-content a, table tr a")
         val animeList = items.mapNotNull { link ->
             val title = link.text().trim()
-            val url = fixUrl(link.attr("abs:href"))
+            val url = fixUrl(link.attr("href"), request.data)
             if (!url.contains("?") && !url.endsWith("..") && title.isNotEmpty()) {
                 newMovieSearchResponse(title, url, TvType.Movie)
             } else null
@@ -37,36 +45,40 @@ class FtpBdProvider : MainAPI() {
 
     private val baseDomain = "ftpbd.net"
 
-    private fun fixUrl(url: String): String {
+    private fun fixUrl(url: String, baseUrl: String = mainUrl): String {
         if (url.isBlank()) return url
         var u = url.trim()
-        val lastHttp = u.lastIndexOf("http://", ignoreCase = true)
-        val lastHttps = u.lastIndexOf("https://", ignoreCase = true)
-        val lastProtocol = if (lastHttp > lastHttps) lastHttp else lastHttps
-        if (lastProtocol > 0) u = u.substring(lastProtocol)
-        u = u.replace(Regex("http(s)?://http(s)?://", RegexOption.IGNORE_CASE), "http$1://")
-        return u.replace(" ", "%20")
+        if (!u.startsWith("http")) {
+            u = if (u.startsWith("//")) "http:$u"
+            else if (u.startsWith("/")) {
+                val host = if (baseUrl.contains("//")) {
+                    baseUrl.substringBefore("/", "http://")
+                } else baseUrl
+                "$host$u"
+            }
+            else "$baseUrl/$u"
+        }
+        return u.replace(" ", "%20").replace(Regex("(?<!:)/{2,}"), "/")
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
         if (query.isBlank()) return emptyList()
         val searchResults = mutableListOf<SearchResponse>()
         
-        val domain = baseDomain
         val searchPaths = listOf(
-            "https://server3.$domain/FTP-3/Hindi%20Movies/2025/",
-            "https://server3.$domain/FTP-3/Hindi%20Movies/2024/",
-            "https://server3.$domain/FTP-3/Hindi%20Movies/"
+            "http://server3.$baseDomain/FTP-3/Hindi%20Movies/2025/",
+            "http://server3.$baseDomain/FTP-3/Hindi%20Movies/2024/",
+            "http://server3.$baseDomain/FTP-3/Hindi%20Movies/"
         )
 
         searchPaths.forEach { path ->
             try {
-                val doc = app.get(path).document
+                val doc = app.get(path, headers = commonHeaders, timeout = 10).document
                 val items = doc.select("td.fb-n a, div.entry-content a, table tr a")
                 items.forEach { link ->
                     val title = link.text().trim()
                     if (title.contains(query, true)) {
-                        val url = fixUrl(link.attr("abs:href"))
+                        val url = fixUrl(link.attr("href"), path)
                         if (!url.contains("?") && !url.endsWith("..")) {
                             searchResults.add(newMovieSearchResponse(title, url, TvType.Movie))
                         }
@@ -79,11 +91,15 @@ class FtpBdProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse? {
         val fixedUrl = fixUrl(url)
-        val document = app.get(fixedUrl).document
+        val document = try {
+            app.get(fixedUrl, headers = commonHeaders, timeout = 15).document
+        } catch (e: Exception) {
+            return null
+        }
         val title = document.title().replace("Index of", "").trim()
         
-        val poster = document.selectFirst("img[src~=(?i)a11|poster|banner|thumb]")?.attr("abs:src")
-            ?: (fixedUrl + "poster.jpg") // Fallback
+        val poster = document.selectFirst("img[src~=(?i)a11|poster|banner|thumb]")?.attr("src")?.let { fixUrl(it, fixedUrl) }
+            ?: fixUrl("poster.jpg", fixedUrl)
 
         val episodes = mutableListOf<Episode>()
         val visited = mutableSetOf<String>()
@@ -98,7 +114,7 @@ class FtpBdProvider : MainAPI() {
         return null
     }
 
-    private suspend fun parseDirectoryRecursive(document: org.jsoup.nodes.Document, depth: Int, episodes: MutableList<Episode>, visited: MutableSet<String>, currentUrl: String) {
+    private suspend fun parseDirectoryRecursive(document: Document, depth: Int, episodes: MutableList<Episode>, visited: MutableSet<String>, currentUrl: String) {
         if (!visited.add(currentUrl)) return
 
         val links = document.select("a[href]")
@@ -106,7 +122,7 @@ class FtpBdProvider : MainAPI() {
         val dirs = mutableListOf<String>()
 
         links.forEach { element ->
-            val href = element.attr("abs:href")
+            val href = element.attr("href")?.let { fixUrl(it, currentUrl) } ?: ""
             val text = element.text().trim()
             if (href.contains("?") || text.equals("parent directory", true) || href.endsWith("../")) return@forEach
             
@@ -123,10 +139,10 @@ class FtpBdProvider : MainAPI() {
             })
         }
 
-        if (depth > 0 && files.isEmpty()) { // Only recurse if no files found in current dir (optimization)
+        if (depth > 0 && files.isEmpty()) {
             dirs.forEach { dirUrl ->
                 try {
-                    val doc = app.get(dirUrl).document
+                    val doc = app.get(dirUrl, headers = commonHeaders, timeout = 5).document
                     parseDirectoryRecursive(doc, depth - 1, episodes, visited, dirUrl)
                 } catch (e: Exception) {}
             }
