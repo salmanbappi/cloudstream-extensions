@@ -37,7 +37,6 @@ class DflixProvider : MainAPI() {
     }
 
     private suspend fun checkLogin(document: org.jsoup.nodes.Document): Boolean {
-        // If title contains "Login" or we are on the login page
         if (document.title().contains("Login", ignoreCase = true) || document.select("input[name=username]").isNotEmpty()) {
             return false
         }
@@ -60,9 +59,15 @@ class DflixProvider : MainAPI() {
         val url = post.selectFirst("a")?.attr("abs:href") ?: return null
         val title = post.select("div.card > div:nth-child(2) > h3:nth-child(1)").text().trim()
         val poster = post.selectFirst("div.poster > img:nth-child(1)")?.attr("abs:src")
-        
+        val qualityText = post.select("span.movie_details_span_end, div.card > a:nth-child(1) > span:nth-child(1)").text()
+
         return newMovieSearchResponse(title, url, TvType.Movie) {
             this.posterUrl = poster
+            this.quality = getSearchQuality(qualityText)
+            addDubStatus(
+                dubExist = qualityText.contains("DUAL", true),
+                subExist = false
+            )
         }
     }
 
@@ -87,8 +92,21 @@ class DflixProvider : MainAPI() {
         val title = doc.select(".movie-detail-content h3").first()?.text()?.trim() ?: doc.title()
         val poster = doc.selectFirst(".movie-detail-banner img")?.attr("abs:src")
         val plot = doc.selectFirst(".storyline")?.text()?.trim()
+        val size = doc.select(".badge.badge-fill").text()
+        val tags = doc.select(".ganre-wrapper > a").map { it.text().replace(",", "") }
+        val actors = doc.select("div.col-lg-2").map { actor(it) }
+        val recommendations = doc.select("div.badge-outline > a").mapNotNull { 
+            // This selector in reference code seems specific, ensuring it doesn't break
+             val recUrl = it.attr("abs:href")
+             val recName = it.text()
+             if(recUrl.isNotEmpty()) {
+                 newMovieSearchResponse(recName, recUrl, TvType.Movie) {
+                     this.posterUrl = poster // Reusing main poster as fallback or if appropriate
+                 }
+             } else null
+        }
         
-        // Movie link extraction: look for "Download" button or video file extension
+        // Movie link extraction
         val dataUrl = doc.select("a.btn").find { 
             val href = it.attr("href").lowercase()
             val text = it.text().lowercase()
@@ -98,26 +116,20 @@ class DflixProvider : MainAPI() {
         if (dataUrl != null && !dataUrl.contains("/m/view/")) {
             return newMovieLoadResponse(title, url, TvType.Movie, dataUrl) {
                 this.posterUrl = poster
-                this.plot = plot
+                this.plot = "<b>$size</b><br><br>$plot"
+                this.tags = tags
+                this.actors = actors
+                this.recommendations = recommendations
             }
         }
         
         // Series Episode Extraction
-        // Selector: div.card that contains h5 (episode number/link)
         val episodes = doc.select("div.card").mapNotNull { element ->
             val h5 = element.selectFirst("h5") ?: return@mapNotNull null
             val epUrl = h5.selectFirst("a")?.attr("abs:href") ?: return@mapNotNull null
-            
-            // Extract Name: The h2 > a > h4 contains the title
             val epNameRaw = element.select("h2 a h4").text()
-            // Clean up "1080P STREAM" badges if captured in text (jsoup .text() usually omits tags but includes content)
-            // The HTML: <h4>The Peace Problem <br> <div class="badge...">...</div></h4>
-            // .text() might result in "The Peace Problem 1080P STREAM"
-            // Let's try to get ownText of h4 if possible, or just take the full text and clean.
             val epName = epNameRaw.replace(Regex("(1080P|STREAM|720P|WEB-DL|4K).*"), "").trim()
-            
-            // Extract Season/Episode from h5 text "S3 | EP 1"
-            val seasonEpStr = h5.text() // "S3 | EP 1  1.15 GB"
+            val seasonEpStr = h5.text()
             val seasonMatch = Regex("S(\\d+)").find(seasonEpStr)
             val epMatch = Regex("EP\\s*(\\d+)").find(seasonEpStr)
             
@@ -137,21 +149,34 @@ class DflixProvider : MainAPI() {
              return newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.plot = plot
+                this.tags = tags
+                this.actors = actors
+                this.recommendations = recommendations
             }
         }
         
-        // Fallback: if no episodes and no movie link found, maybe it's a Movie page where selector failed?
-        // But if we are here, we likely failed. Return null or throw?
-        // Let's check for "Stream" or "WEB Play" buttons as last resort for Movie
         val streamUrl = doc.select("a.btn").find { it.text().contains("Stream", true) || it.text().contains("Play", true) }?.attr("abs:href")
         if (streamUrl != null) {
              return newMovieLoadResponse(title, url, TvType.Movie, streamUrl) {
                 this.posterUrl = poster
                 this.plot = plot
+                this.tags = tags
+                this.actors = actors
+                this.recommendations = recommendations
             }
         }
 
         return null
+    }
+
+    private fun actor(post: Element): ActorData {
+        val html = post.select("div.col-lg-2 > a:nth-child(1) > img:nth-child(1)")
+        val img = html.attr("abs:src")
+        val name = html.attr("alt")
+        return ActorData(
+            actor = Actor(name, img), 
+            roleString = post.select("div.col-lg-2 > p.text-center.text-white").text()
+        )
     }
 
     override suspend fun loadLinks(
@@ -170,5 +195,21 @@ class DflixProvider : MainAPI() {
             }
         )
         return true
+    }
+
+    private fun getSearchQuality(check: String?): SearchQuality? {
+        val lowercaseCheck = check?.lowercase()
+        if (lowercaseCheck != null) {
+            return when {
+                lowercaseCheck.contains("4k") -> SearchQuality.FourK
+                lowercaseCheck.contains("web-r") || lowercaseCheck.contains("web-dl") -> SearchQuality.WebRip
+                lowercaseCheck.contains("br") -> SearchQuality.BlueRay
+                lowercaseCheck.contains("hdts") || lowercaseCheck.contains("hdcam") || lowercaseCheck.contains("hdtc") -> SearchQuality.HdCam
+                lowercaseCheck.contains("cam") -> SearchQuality.Cam
+                lowercaseCheck.contains("hd") || lowercaseCheck.contains("1080p") -> SearchQuality.HD
+                else -> null
+            }
+        }
+        return null
     }
 }
