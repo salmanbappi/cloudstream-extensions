@@ -1,4 +1,4 @@
-version = 9
+version = 10
 
 android {
     namespace = "com.cloudstream.extensions.dflix"

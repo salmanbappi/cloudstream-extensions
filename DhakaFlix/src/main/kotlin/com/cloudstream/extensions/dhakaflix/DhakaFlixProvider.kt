@@ -24,8 +24,12 @@ class DhakaFlixProvider : MainAPI() {
         "http://172.16.50.9/DHAKA-FLIX-9/Anime%20%26%20Cartoon%20TV%20Series/" to "Anime & Cartoon"
     )
 
+    private val commonHeaders = mapOf(
+        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    )
+
     private val doubleProtocolRegex = Regex("""https?://https?://""", RegexOption.IGNORE_CASE)
-    private val multiSlashRegex = Regex("""(?<!:)/{2,}*""")
+    private val multiSlashRegex = Regex("""(?<!:)/{2,}""")
     private val sizeRegex = Regex("""(\d+\.\d+ [GM]B|\d+ [GM]B).*""", RegexOption.IGNORE_CASE)
 
     private fun fixUrl(url: String, baseUrl: String = mainUrl): String {
@@ -35,9 +39,14 @@ class DhakaFlixProvider : MainAPI() {
             u = if (u.startsWith("//")) "http:$u"
             else if (u.startsWith("/")) {
                 val host = if (baseUrl.contains("//")) {
-                    baseUrl.substringBefore("/").substringBefore(":")
+                    baseUrl.substringBefore("/", "http://").substringBeforeLast(":")
                 } else baseUrl
-                "$baseUrl$u" 
+                if (u.startsWith("/DHAKA-FLIX")) { // It's an absolute path on the server
+                     val root = if(baseUrl.contains("//")) baseUrl.substringBefore("/", "http://") else baseUrl
+                     "$root$u"
+                } else {
+                     "$baseUrl$u"
+                }
             }
             else "$baseUrl/$u"
         }
@@ -48,9 +57,20 @@ class DhakaFlixProvider : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val doc = try {
-            app.get(request.data, timeout = 10).document
+            app.get(request.data, headers = commonHeaders, timeout = 10).document
         } catch (e: Exception) {
-            return newHomePageResponse(request.name, emptyList())
+            // If private IP fails, try public domain fallback for some known ones
+            val publicUrl = request.data.replace("172.16.50.9", "dflix.discoveryftp.net")
+                                       .replace("172.16.50.14", "movies.discoveryftp.net")
+            if (publicUrl != request.data) {
+                try {
+                    app.get(publicUrl, headers = commonHeaders, timeout = 10).document
+                } catch (e2: Exception) {
+                    return newHomePageResponse(request.name, emptyList())
+                }
+            } else {
+                return newHomePageResponse(request.name, emptyList())
+            }
         }
         val animeList = mutableListOf<SearchResponse>()
         
@@ -109,48 +129,54 @@ class DhakaFlixProvider : MainAPI() {
         
         servers.forEach { (serverUrl, serverName) ->
             try {
-                val searchUrl = "$serverUrl/$serverName/"
-                val response = app.post(
-                    searchUrl,
-                    headers = mapOf("Content-Type" to "application/json; charset=utf-8"),
-                    json = mapOf("action" to "get", "search" to mapOf("href" to "/$serverName/", "pattern" to query, "ignorecase" to true)),
-                    timeout = 5
-                )
+                // Try private then public
+                val urlsToTry = listOf(serverUrl, serverUrl.replace("172.16.50.9", "dflix.discoveryftp.net")).replace("172.16.50.14", "movies.discoveryftp.net")).distinct()
                 
-                val bodyString = response.text
-                val pattern = Pattern.compile("\"href\":\"([^\"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
-                val matcher = pattern.matcher(bodyString)
-                
-                while (matcher.find()) {
-                    val hrefMatch = matcher.group(1) ?: continue
-                    var href = hrefMatch.replace('\\', '/').trim()
-                    href = href.replace(Regex("/+"), "/")
-                    
-                    var cleanHrefForTitle = href
-                    while (cleanHrefForTitle.endsWith("/")) {
-                        cleanHrefForTitle = cleanHrefForTitle.dropLast(1)
-                    }
-                    
-                    val rawTitle = cleanHrefForTitle.substringAfterLast("/")
-                    val title = try {
-                        URLDecoder.decode(rawTitle, "UTF-8").trim()
-                    } catch (e: Exception) {
-                        rawTitle.trim()
-                    }
-                    
-                    if (title.isNotEmpty() && !isIgnored(title)) {
-                        val url = fixUrl(href, serverUrl)
-                        val thumbSuffix = if (serverName.contains("9")) "a11.jpg" else "a_AL_.jpg"
-                        val posterUrl = fixUrl(url + (if(url.endsWith("/")) "" else "/") + thumbSuffix, serverUrl)
+                for (host in urlsToTry) {
+                    try {
+                        val searchUrl = "$host/$serverName/"
+                        val response = app.post(
+                            searchUrl,
+                            headers = mapOf("Content-Type" to "application/json; charset=utf-8") + commonHeaders,
+                            json = mapOf("action" to "get", "search" to mapOf("href" to "/$serverName/", "pattern" to query, "ignorecase" to true)),
+                            timeout = 5
+                        )
                         
-                        searchResults.add(newMovieSearchResponse(title, url, TvType.Movie) {
-                            this.posterUrl = posterUrl
-                        })
-                    }
+                        val bodyString = response.text
+                        val pattern = Pattern.compile("""\"href\":\"([^\"]+)\"[^}]*\"size\":null""", Pattern.CASE_INSENSITIVE)
+                        val matcher = pattern.matcher(bodyString)
+                        
+                        while (matcher.find()) {
+                            val hrefMatch = matcher.group(1) ?: continue
+                            var href = hrefMatch.replace('\\', '/').trim()
+                            href = href.replace(Regex("/+"), "/")
+                            
+                            var cleanHrefForTitle = href
+                            while (cleanHrefForTitle.endsWith("/")) {
+                                cleanHrefForTitle = cleanHrefForTitle.dropLast(1)
+                            }
+                            
+                            val rawTitle = cleanHrefForTitle.substringAfterLast("/")
+                            val title = try {
+                                URLDecoder.decode(rawTitle, "UTF-8").trim()
+                            } catch (e: Exception) {
+                                rawTitle.trim()
+                            }
+                            
+                            if (title.isNotEmpty() && !isIgnored(title)) {
+                                val url = fixUrl(href, host)
+                                val thumbSuffix = if (serverName.contains("9")) "a11.jpg" else "a_AL_.jpg"
+                                val posterUrl = fixUrl(url + (if(url.endsWith("/")) "" else "/") + thumbSuffix, host)
+                                
+                                searchResults.add(newMovieSearchResponse(title, url, TvType.Movie) {
+                                    this.posterUrl = posterUrl
+                                })
+                            }
+                        }
+                        if (searchResults.isNotEmpty()) break // If one host works, stop trying others for this server
+                    } catch (e: Exception) {}
                 }
-            } catch (e: Exception) {
-                // Ignore errors from individual servers
-            }
+            } catch (e: Exception) { } // Ignore errors from individual servers
         }
         return searchResults.distinctBy { it.url }
     }
@@ -163,7 +189,7 @@ class DhakaFlixProvider : MainAPI() {
     override suspend fun load(url: String): LoadResponse? {
         val fixedUrl = fixUrl(url)
         val document = try {
-            app.get(fixedUrl, timeout = 15).document
+            app.get(fixedUrl, headers = commonHeaders, timeout = 15).document
         } catch (e: Exception) {
             return null
         }
@@ -224,7 +250,8 @@ class DhakaFlixProvider : MainAPI() {
                     name = name,
                     url = url
                 ) {
-                    this.referer = ""
+                    this.referer = "$mainUrl/"
+                    this.headers = commonHeaders
                 }
             )
             return true
@@ -305,7 +332,7 @@ class DhakaFlixProvider : MainAPI() {
         if (depth > 0 && files.isEmpty()) {
             dirs.forEach { dirUrl ->
                 try {
-                    val doc = app.get(dirUrl, timeout = 5).document
+                    val doc = app.get(dirUrl, headers = commonHeaders, timeout = 5).document
                     parseDirectoryRecursive(doc, depth - 1, episodes, visited, dirUrl)
                 } catch (e: Exception) {}
             }

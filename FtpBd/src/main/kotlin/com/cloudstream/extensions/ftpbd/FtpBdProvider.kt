@@ -162,7 +162,8 @@ class FtpBdProvider : MainAPI() {
                 name = name,
                 url = url
             ) {
-                this.referer = ""
+                this.referer = "$mainUrl/"
+                this.headers = commonHeaders
             }
         )
         return true
