@@ -130,7 +130,7 @@ class DhakaFlixProvider : MainAPI() {
         servers.forEach { (serverUrl, serverName) ->
             try {
                 // Try private then public
-                val urlsToTry = listOf(serverUrl, serverUrl.replace("172.16.50.9", "dflix.discoveryftp.net")).replace("172.16.50.14", "movies.discoveryftp.net")).distinct()
+                val urlsToTry = listOf(serverUrl, serverUrl.replace("172.16.50.9", "dflix.discoveryftp.net").replace("172.16.50.14", "movies.discoveryftp.net")).distinct()
                 
                 for (host in urlsToTry) {
                     try {
@@ -143,7 +143,7 @@ class DhakaFlixProvider : MainAPI() {
                         )
                         
                         val bodyString = response.text
-                        val pattern = Pattern.compile("""\"href\":\"([^\"]+)\"[^}]*\"size\":null""", Pattern.CASE_INSENSITIVE)
+                        val pattern = Pattern.compile("\"href\":\"([^\"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
                         val matcher = pattern.matcher(bodyString)
                         
                         while (matcher.find()) {
