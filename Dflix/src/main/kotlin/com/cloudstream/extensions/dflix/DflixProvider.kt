@@ -62,7 +62,7 @@ class DflixProvider : MainAPI() {
                 "$root$u"
             }
         }
-        return u.replace(" ", "%20").replace(Regex("(?<!:)/{2,}"), "/")
+        return u.replace(" ", "%20").replace(Regex("""(?<!:)/{2,}"""), "/")
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
@@ -77,7 +77,7 @@ class DflixProvider : MainAPI() {
             doc = app.get(url, cookies = loginCookie, headers = commonHeaders).document
         }
 
-        val home = doc.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard").mapNotNull { element -> toResult(element) }
+        val home = doc.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard, .moviegrid .card").mapNotNull { element -> toResult(element) }
         return newHomePageResponse(request.name, home, true)
     }
 
@@ -94,16 +94,18 @@ class DflixProvider : MainAPI() {
             title = h3.text()
         } else if (ftitle != null) {
             val ftitleText = ftitle.text().trim()
-            if (ftitleText.contains(Regex("(?i)S\\d+\\s*:\\s*E\\d+")))
+            // If ftitle contains episode pattern like S1:E1, use fdetails as title
+            if (ftitleText.contains(Regex("""(?i)S\d+\s*:\s*E\d+"""))) {
                 title = fdetails?.text() ?: ftitleText
-            else {
+            } else {
                 title = ftitleText
             }
         } else if (fdetails != null) {
             title = fdetails.text()
         }
         
-        title = title.replace(Regex("\\(\\(\\d+\\)\\)"), "").replace(Regex("\\(\\d+\\)"), "").trim()
+        // Clean year tags like ((2024)) or (2024)
+        title = title.replace(Regex("""\(\(\d+\)\)"""), "").replace(Regex("""\(\d+\)"""), "").trim()
         if (title.isEmpty()) return null
         
         val poster = fixUrl(post.selectFirst("img")?.attr("src") ?: "")
@@ -126,8 +128,8 @@ class DflixProvider : MainAPI() {
         val seriesDoc = try { app.get(fixUrl("/s/find/$query"), cookies = loginCookie, headers = commonHeaders).document } catch(e: Exception) { null }
         
         val results = mutableListOf<SearchResponse>()
-        movieDoc?.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard")?.forEach { results.add(toResult(it) ?: return@forEach) }
-        seriesDoc?.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard")?.forEach { results.add(toResult(it) ?: return@forEach) }
+        movieDoc?.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard, .moviegrid .card")?.forEach { results.add(toResult(it) ?: return@forEach) }
+        seriesDoc?.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard, .moviegrid .card")?.forEach { results.add(toResult(it) ?: return@forEach) }
         
         return results.distinctBy { it.url }
     }
@@ -154,11 +156,11 @@ class DflixProvider : MainAPI() {
                 val h5 = element.selectFirst("h5") ?: return@mapNotNull null
                 val epUrl = h5.selectFirst("a")?.attr("href")?.let { fixUrl(it, fixedUrl) } ?: return@mapNotNull null
                 val epNameRaw = element.select("h4, h5").text()
-                val epName = epNameRaw.replace(Regex("(?i)(1080P|STREAM|720P|WEB-DL|4K|DUAL|ESUB).*"), "").trim()
+                val epName = epNameRaw.replace(Regex("""(?i)(1080P|STREAM|720P|WEB-DL|4K|DUAL|ESUB).*"""), "").trim()
                 
                 val seasonEpStr = h5.text()
-                val seasonMatch = Regex("(?i)S(\\d+)").find(seasonEpStr)
-                val epMatch = Regex("(?i)EP\\s*(\\d+)").find(seasonEpStr)
+                val seasonMatch = Regex("""(?i)S(\d+)""").find(seasonEpStr)
+                val epMatch = Regex("""(?i)EP\s*(\d+)""").find(seasonEpStr)
                 
                 val season = seasonMatch?.groupValues?.get(1)?.toIntOrNull()
                 val episode = epMatch?.groupValues?.get(1)?.toIntOrNull()
@@ -238,5 +240,21 @@ class DflixProvider : MainAPI() {
             }
         )
         return true
+    }
+
+    private fun getSearchQuality(check: String?): SearchQuality? {
+        val lowercaseCheck = check?.lowercase()
+        if (lowercaseCheck != null) {
+            return when {
+                lowercaseCheck.contains("4k") -> SearchQuality.FourK
+                lowercaseCheck.contains("web-r") || lowercaseCheck.contains("web-dl") -> SearchQuality.WebRip
+                lowercaseCheck.contains("br") -> SearchQuality.BlueRay
+                lowercaseCheck.contains("hdts") || lowercaseCheck.contains("hdcam") || lowercaseCheck.contains("hdtc") -> SearchQuality.HdCam
+                lowercaseCheck.contains("cam") -> SearchQuality.Cam
+                lowercaseCheck.contains("hd") || lowercaseCheck.contains("1080p") -> SearchQuality.HD
+                else -> null
+            }
+        }
+        return null
     }
 }

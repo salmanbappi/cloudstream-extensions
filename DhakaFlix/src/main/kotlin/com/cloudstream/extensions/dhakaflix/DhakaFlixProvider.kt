@@ -9,19 +9,20 @@ import java.util.regex.Pattern
 import kotlin.text.RegexOption
 
 class DhakaFlixProvider : MainAPI() {
-    override var mainUrl = "http://172.16.50.9"
+    override var mainUrl = "https://dflix.discoveryftp.net"
     override var name = "DhakaFlix"
     override val hasMainPage = true
     override var lang = "bn"
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
 
+    // Using public domains for better reachability
     override val mainPage = mainPageOf(
-        "http://172.16.50.14/DHAKA-FLIX-14/Hindi%20Movies/%282025%29/" to "Hindi Movies (2025)",
-        "http://172.16.50.7/DHAKA-FLIX-7/English%20Movies/%282025%29/" to "English Movies (2025)",
-        "http://172.16.50.14/DHAKA-FLIX-14/English%20Movies%20%281080p%29/%282025%29%201080p/" to "English Movies 1080p (2025)",
-        "http://172.16.50.14/DHAKA-FLIX-14/SOUTH%20INDIAN%20MOVIES/South%20Movies/2025/" to "South Indian Movies (2025)",
-        "http://172.16.50.12/DHAKA-FLIX-12/TV-WEB-Series/" to "TV & Web Series",
-        "http://172.16.50.9/DHAKA-FLIX-9/Anime%20%26%20Cartoon%20TV%20Series/" to "Anime & Cartoon"
+        "https://movies.discoveryftp.net/DHAKA-FLIX-14/Hindi%20Movies/%282025%29/" to "Hindi Movies (2025)",
+        "https://movies.discoveryftp.net/DHAKA-FLIX-7/English%20Movies/%282025%29/" to "English Movies (2025)",
+        "https://movies.discoveryftp.net/DHAKA-FLIX-14/English%20Movies%20%281080p%29/%282025%29%201080p/" to "English Movies 1080p (2025)",
+        "https://movies.discoveryftp.net/DHAKA-FLIX-14/SOUTH%20INDIAN%20MOVIES/South%20Movies/2025/" to "South Indian Movies (2025)",
+        "https://dflix.discoveryftp.net/DHAKA-FLIX-12/TV-WEB-Series/" to "TV & Web Series",
+        "https://dflix.discoveryftp.net/DHAKA-FLIX-9/Anime%20%26%20Cartoon%20TV%20Series/" to "Anime & Cartoon"
     )
 
     private val commonHeaders = mapOf(
@@ -38,12 +39,12 @@ class DhakaFlixProvider : MainAPI() {
         if (!u.startsWith("http")) {
             u = if (u.startsWith("//")) "http:$u"
             else if (u.startsWith("/")) {
-                val host = if (baseUrl.contains("//")) {
+                val root = if (baseUrl.contains("//")) {
                     baseUrl.substringBefore("/", "http://").substringBeforeLast(":")
                 } else baseUrl
-                if (u.startsWith("/DHAKA-FLIX")) { // It's an absolute path on the server
-                     val root = if(baseUrl.contains("//")) baseUrl.substringBefore("/", "http://") else baseUrl
-                     "$root$u"
+                if (u.startsWith("/DHAKA-FLIX")) {
+                     val domainRoot = if(baseUrl.contains("//")) baseUrl.split("/").take(3).joinToString("/") else baseUrl
+                     "$domainRoot$u"
                 } else {
                      "$baseUrl$u"
                 }
@@ -59,16 +60,12 @@ class DhakaFlixProvider : MainAPI() {
         val doc = try {
             app.get(request.data, headers = commonHeaders, timeout = 10).document
         } catch (e: Exception) {
-            // If private IP fails, try public domain fallback for some known ones
-            val publicUrl = request.data.replace("172.16.50.9", "dflix.discoveryftp.net")
-                                       .replace("172.16.50.14", "movies.discoveryftp.net")
-            if (publicUrl != request.data) {
-                try {
-                    app.get(publicUrl, headers = commonHeaders, timeout = 10).document
-                } catch (e2: Exception) {
-                    return newHomePageResponse(request.name, emptyList())
-                }
-            } else {
+            // Fallback to IP if domain fails
+            val ipUrl = request.data.replace("movies.discoveryftp.net", "172.16.50.14")
+                                   .replace("dflix.discoveryftp.net", "172.16.50.9")
+            try {
+                app.get(ipUrl, headers = commonHeaders, timeout = 10).document
+            } catch (e2: Exception) {
                 return newHomePageResponse(request.name, emptyList())
             }
         }
@@ -129,7 +126,6 @@ class DhakaFlixProvider : MainAPI() {
         
         servers.forEach { (serverUrl, serverName) ->
             try {
-                // Try private then public
                 val urlsToTry = listOf(serverUrl, serverUrl.replace("172.16.50.9", "dflix.discoveryftp.net").replace("172.16.50.14", "movies.discoveryftp.net")).distinct()
                 
                 for (host in urlsToTry) {
@@ -143,13 +139,13 @@ class DhakaFlixProvider : MainAPI() {
                         )
                         
                         val bodyString = response.text
-                        val pattern = Pattern.compile("\"href\":\"([^\"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
+                        val pattern = Pattern.compile("\"href\":\"([^"]+)\"[^}]*\"size\":null", Pattern.CASE_INSENSITIVE)
                         val matcher = pattern.matcher(bodyString)
                         
                         while (matcher.find()) {
                             val hrefMatch = matcher.group(1) ?: continue
                             var href = hrefMatch.replace('\\', '/').trim()
-                            href = href.replace(Regex("/+"), "/")
+                            href = href.replace(Regex("//+"), "/")
                             
                             var cleanHrefForTitle = href
                             while (cleanHrefForTitle.endsWith("/")) {
@@ -173,10 +169,10 @@ class DhakaFlixProvider : MainAPI() {
                                 })
                             }
                         }
-                        if (searchResults.isNotEmpty()) break // If one host works, stop trying others for this server
+                        if (searchResults.isNotEmpty()) break 
                     } catch (e: Exception) {}
                 }
-            } catch (e: Exception) { } // Ignore errors from individual servers
+            } catch (e: Exception) { } 
         }
         return searchResults.distinctBy { it.url }
     }
@@ -250,8 +246,7 @@ class DhakaFlixProvider : MainAPI() {
                     name = name,
                     url = url
                 ) {
-                    this.referer = "$mainUrl/"
-                    this.headers = commonHeaders
+                    this.referer = ""
                 }
             )
             return true
