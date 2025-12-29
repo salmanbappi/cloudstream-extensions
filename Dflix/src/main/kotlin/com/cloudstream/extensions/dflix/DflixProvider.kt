@@ -25,6 +25,7 @@ class DflixProvider : MainAPI() {
 
     private suspend fun login(force: Boolean = false) {
         if (loginCookie.isEmpty() || force) {
+            loginCookie = emptyMap() // Clear existing cookies
             try {
                 val client = app.get("$mainUrl/login/demo", allowRedirects = false)
                 if (client.cookies.isNotEmpty()) {
@@ -49,6 +50,10 @@ class DflixProvider : MainAPI() {
         if (!checkLogin(doc)) {
             login(true)
             doc = app.get("$mainUrl/m/${request.data}/$page", cookies = loginCookie).document
+        }
+        // One more check to be safe
+        if (!checkLogin(doc)) {
+             throw ErrorResponse("Login failed. Please try again later.")
         }
 
         val home = doc.select("div.card").mapNotNull { element -> toResult(element) }
