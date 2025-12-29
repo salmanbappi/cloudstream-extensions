@@ -21,7 +21,7 @@ class DflixProvider : MainAPI() {
         "s/category/Foreign" to "Foreign Series",
         "m/category/Animation" to "Animation Movies",
         "s/category/Animation" to "Animation Series",
-        "m/category/Bangla" to "Bangla Movies",
+        "m/category/Tamil" to "South Indian Movies",
         "s/category/Bangla" to "Bangla Series"
     )
 
@@ -35,7 +35,7 @@ class DflixProvider : MainAPI() {
 
     private suspend fun login(force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (loginCookie.isEmpty() || force || (now - lastLoginTime > 3600000)) { // Re-login every hour
+        if (loginCookie.isEmpty() || force || (now - lastLoginTime > 3600000)) { 
             try {
                 val client = app.get("$mainUrl/login/demo", headers = commonHeaders, allowRedirects = false)
                 if (client.cookies.isNotEmpty()) {
@@ -46,18 +46,31 @@ class DflixProvider : MainAPI() {
         }
     }
 
+    private fun fixUrl(url: String, baseUrl: String = mainUrl): String {
+        if (url.isBlank()) return url
+        var u = url.trim()
+        if (!u.startsWith("http")) {
+            u = if (u.startsWith("//")) "https:$u"
+            else if (u.startsWith("/")) {
+                val root = baseUrl.split("/").take(3).joinToString("/")
+                "$root$u"
+            }
+            else {
+                val root = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
+                "$root$u"
+            }
+        }
+        return u.replace(" ", "%20")
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         login()
-        val url = if (request.data.contains("recent")) {
-            fixUrl("${request.data}/$page")
-        } else {
-            fixUrl("${request.data}/$page")
-        }
+        val url = fixUrl("${request.data}/$page")
         
-        val response = app.get(url, cookies = loginCookie, headers = commonHeaders)
+        var response = app.get(url, cookies = loginCookie, headers = commonHeaders)
         var doc = response.document
         
-        if (doc.select("input[name=username]").isNotEmpty()) {
+        if (doc.select("input[name=username]").isNotEmpty() || doc.title().contains("Login")) {
             login(true)
             doc = app.get(url, cookies = loginCookie, headers = commonHeaders).document
         }
@@ -87,9 +100,8 @@ class DflixProvider : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         login()
         val url = fixUrl("/m/find/$query")
-        val response = app.get(url, cookies = loginCookie, headers = commonHeaders)
-        var doc = response.document
-        if (doc.select("input[name=username]").isNotEmpty()) {
+        var doc = app.get(url, cookies = loginCookie, headers = commonHeaders).document
+        if (doc.select("input[name=username]").isNotEmpty() || doc.title().contains("Login")) {
             login(true)
             doc = app.get(url, cookies = loginCookie, headers = commonHeaders).document
         }
@@ -99,31 +111,29 @@ class DflixProvider : MainAPI() {
     override suspend fun load(url: String): LoadResponse? {
         val fixedUrl = fixUrl(url)
         login()
-        val response = app.get(fixedUrl, cookies = loginCookie, headers = commonHeaders)
-        var doc = response.document
+        var doc = app.get(fixedUrl, cookies = loginCookie, headers = commonHeaders).document
         
-        if (doc.select("input[name=username]").isNotEmpty()) {
+        if (doc.select("input[name=username]").isNotEmpty() || doc.title().contains("Login")) {
             login(true)
             doc = app.get(fixedUrl, cookies = loginCookie, headers = commonHeaders).document
         }
 
-        val title = doc.select(".movie-detail-content h3, .movie-detail-content-test h3").first()?.text()?.trim() ?: doc.title()
+        val title = doc.select(".movie-detail-content h3, .movie-detail-content-test h3").first()?.text()?.trim() ?: doc.title().replace("DFLIX - ", "").trim()
         val poster = fixUrl(doc.selectFirst(".movie-detail-banner img")?.attr("src") ?: "")
         val plot = doc.selectFirst(".storyline")?.text()?.trim()
         val tags = doc.select(".ganre-wrapper > a").map { it.text().replace(",", "").trim() }
         val actors = doc.select("div.col-lg-2").map { actor(it) }
         
-        // Try parsing as Series first if URL contains /s/
         if (fixedUrl.contains("/s/view/")) {
-            val episodes = doc.select("div.card").mapNotNull { element ->
+            val episodes = doc.select("div.container div.card").mapNotNull { element ->
                 val h5 = element.selectFirst("h5") ?: return@mapNotNull null
-                val epUrl = h5.selectFirst("a")?.attr("href")?.let { fixUrl(it) } ?: return@mapNotNull null
-                val epNameRaw = element.select("h2 a h4, h4").text()
-                val epName = epNameRaw.replace(Regex("(?i)(1080P|STREAM|720P|WEB-DL|4K|DUAL|ESUB).*"), "").trim()
+                val epUrl = h5.selectFirst("a")?.attr("href")?.let { fixUrl(it, fixedUrl) } ?: return@mapNotNull null
+                val epNameRaw = element.select("h4").text()
+                val epName = epNameRaw.replace(Regex("(?i)(1080P|STREAM|720P|WEB-DL|4K|DUAL|ESUB).*)"), "").trim()
                 
                 val seasonEpStr = h5.text()
-                val seasonMatch = Regex("(?i)S(\\d+)").find(seasonEpStr)
-                val epMatch = Regex("(?i)EP\\s*(\\d+)").find(seasonEpStr)
+                val seasonMatch = Regex("(?i)S(\d+)").find(seasonEpStr)
+                val epMatch = Regex("(?i)EP\s*(\d+)").find(seasonEpStr)
                 
                 val season = seasonMatch?.groupValues?.get(1)?.toIntOrNull()
                 val episode = epMatch?.groupValues?.get(1)?.toIntOrNull()
@@ -145,12 +155,11 @@ class DflixProvider : MainAPI() {
             }
         }
 
-        // Movie link extraction
         val dataUrl = doc.select("a.btn").find { 
             val href = it.attr("href").lowercase()
             val text = it.text().lowercase()
             (href.endsWith(".mkv") || href.endsWith(".mp4") || text.contains("download"))
-        }?.attr("href")?.let { fixUrl(it) }
+        }?.attr("href")?.let { fixUrl(it, fixedUrl) }
         
         if (dataUrl != null && !dataUrl.contains("/view/")) {
             return newMovieLoadResponse(title, fixedUrl, TvType.Movie, dataUrl) {
@@ -161,11 +170,10 @@ class DflixProvider : MainAPI() {
             }
         }
         
-        // Last resort Stream/Play buttons
         val streamUrl = doc.select("a.btn").find { 
             val text = it.text().lowercase()
             text.contains("stream") || text.contains("play") 
-        }?.attr("href")?.let { fixUrl(it) }
+        }?.attr("href")?.let { fixUrl(it, fixedUrl) }
         
         if (streamUrl != null) {
              return newMovieLoadResponse(title, fixedUrl, TvType.Movie, streamUrl) {
@@ -193,6 +201,7 @@ class DflixProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        val cookieHeader = loginCookie.entries.joinToString("; ") { "${it.key}=${it.value}" }
         callback.invoke(
             newExtractorLink(
                 source = name,
@@ -200,7 +209,7 @@ class DflixProvider : MainAPI() {
                 url = data,
             ) {
                 this.referer = "$mainUrl/"
-                this.headers = commonHeaders
+                this.headers = commonHeaders + ("Cookie" to cookieHeader)
             }
         )
         return true
