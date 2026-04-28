@@ -100,11 +100,17 @@ class FtpBdProvider : MainAPI() {
     )
 
     override suspend fun search(query: String): List<SearchResponse> {
+        val queryLower = query.trim().lowercase()
+        if (queryLower.isBlank()) return emptyList()
+
         val searchTargets = listOf(
             Pair("https://server3.ftpbd.net", "/FTP-3/"),
             Pair("https://server2.ftpbd.net", "/FTP-2/"),
             Pair("https://server4.ftpbd.net", "/FTP-4/"),
-            Pair("https://server5.ftpbd.net", "/FTP-5/")
+            Pair("https://server5.ftpbd.net", "/FTP-5/"),
+            Pair("https://server4.ftpbd.net", "/FTP-4/English-Foreign-TV-Series/"),
+            Pair("https://server5.ftpbd.net", "/FTP-5/Animation%20Movies/"),
+            Pair("https://server5.ftpbd.net", "/FTP-5/Anime--Cartoon-TV-Series/")
         )
 
         val searchResponse = mutableListOf<SearchResponse>()
@@ -117,14 +123,17 @@ class FtpBdProvider : MainAPI() {
                         val response = app.post(host + path, requestBody = body, timeout = 15).text
                         val searchJson = AppUtils.parseJson<SearchResult>(response)
                         
-                        searchJson.search.take(200).forEach { post ->
+                        searchJson.search.forEach { post ->
                             if (post.size == null) {
                                 val href = post.href
                                 val title = nameFromUrl(href).removeSuffix("/")
                                 val url = fixUrl(href, host)
                                 
                                 // Ignore intermediate year folders in search
-                                if (!title.matches(Regex("""^\d{4}$""")) && !title.equals("Parent Directory", ignoreCase = true)) {
+                                if (!title.matches(Regex("""^\d{4}$""")) &&
+                                    !title.equals("Parent Directory", ignoreCase = true) &&
+                                    title.lowercase().contains(queryLower)
+                                ) {
                                     searchResponse.add(
                                         newMovieSearchResponse(title, url, TvType.Movie) {
                                             this.posterUrl = fixUrl("a_AL_.jpg", url)
@@ -134,7 +143,7 @@ class FtpBdProvider : MainAPI() {
                             }
                         }
                     } catch (_: Exception) {
-                        searchFromHtmlListing(host, path, query).forEach {
+                        searchFromHtmlListing(host, path, queryLower).forEach {
                             searchResponse.add(it)
                         }
                     }
@@ -145,11 +154,9 @@ class FtpBdProvider : MainAPI() {
         return searchResponse.distinctBy { it.url }
     }
 
-    private suspend fun searchFromHtmlListing(host: String, path: String, query: String): List<SearchResponse> {
+    private suspend fun searchFromHtmlListing(host: String, path: String, queryLower: String): List<SearchResponse> {
         return try {
             val doc = app.get(host + path, timeout = 15).document
-            val queryLower = query.trim().lowercase()
-            if (queryLower.isBlank()) return emptyList()
 
             doc.select("tbody > tr:gt(0)").mapNotNull { post ->
                 val folderHtml = post.selectFirst("td.fb-n > a") ?: return@mapNotNull null
