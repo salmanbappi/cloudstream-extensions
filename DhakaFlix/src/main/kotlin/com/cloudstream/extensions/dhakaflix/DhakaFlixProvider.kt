@@ -7,6 +7,9 @@ import org.jsoup.nodes.Document
 import java.net.URLDecoder
 import java.util.regex.Pattern
 import kotlin.text.RegexOption
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 class DhakaFlixProvider(
     private val providerName: String,
@@ -108,6 +111,22 @@ class DhakaFlixProvider(
         if (name.startsWith("Season ", ignoreCase = true)) return true
         if (name.equals("South Movies", ignoreCase = true) || name.equals("Hindi Dubbed", ignoreCase = true)) return true
         return false
+    }
+
+    private fun isIgnored(text: String): Boolean {
+        val ignored = listOf(
+            "Parent Directory",
+            "modern browsers",
+            "Name",
+            "Last modified",
+            "Size",
+            "Description",
+            "Index of",
+            "JavaScript",
+            "powered by",
+            "_h5ai"
+        )
+        return ignored.any { text.contains(it, ignoreCase = true) }
     }
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
