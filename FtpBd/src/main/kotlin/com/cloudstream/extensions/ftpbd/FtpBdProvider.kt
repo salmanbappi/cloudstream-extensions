@@ -9,6 +9,7 @@ import kotlin.text.RegexOption
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import java.util.Calendar
 
 class FtpBdProvider : MainAPI() {
     override var mainUrl = "http://server3.ftpbd.net"
@@ -17,9 +18,11 @@ class FtpBdProvider : MainAPI() {
     override var lang = "bn"
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
 
+    private val year = Calendar.getInstance().get(Calendar.YEAR)
+
     override val mainPage = mainPageOf(
-        "http://server3.ftpbd.net/FTP-3/Hindi%20Movies/2025/" to "Hindi Movies (2025)",
-        "http://server3.ftpbd.net/FTP-3/English%20Movies/2025/" to "English Movies (2025)",
+        "http://server3.ftpbd.net/FTP-3/Hindi%20Movies/$year/" to "Hindi Movies ($year)",
+        "http://server3.ftpbd.net/FTP-3/English%20Movies/$year/" to "English Movies ($year)",
         "http://server3.ftpbd.net/FTP-3/Animation%20Movies/" to "Animation Movies",
         "http://server3.ftpbd.net/FTP-1/TV%20Series/" to "TV Series",
         "http://server3.ftpbd.net/FTP-3/South%20Indian%20Movies/" to "South Indian Movies"
@@ -35,13 +38,18 @@ class FtpBdProvider : MainAPI() {
         } catch (e: Exception) {
             return newHomePageResponse(request.name, emptyList())
         }
-        val items = doc.select("td.fb-n a, div.entry-content a, table tr a")
-        val animeList = items.mapNotNull { link ->
-            val title = link.text().trim()
-            val url = fixUrl(link.attr("href"), request.data)
-            if (!url.contains("?") && !url.endsWith("..") && title.isNotEmpty()) {
-                newMovieSearchResponse(title, url, TvType.Movie)
-            } else null
+        val items = doc.select("tbody > tr:gt(1)")
+        val animeList = items.mapNotNull { post ->
+            val folderHtml = post.selectFirst("td.fb-n > a") ?: return@mapNotNull null
+            val title = folderHtml.text().trim().removeSuffix("/")
+            if (title.equals("Parent Directory", ignoreCase = true) || title.isBlank()) return@mapNotNull null
+            
+            val url = fixUrl(folderHtml.attr("href"), request.data)
+            val thumbUrl = fixUrl("${url}a_AL_.jpg", request.data)
+            
+            newMovieSearchResponse(title, url, TvType.Movie) {
+                this.posterUrl = thumbUrl
+            }
         }
         return newHomePageResponse(request.name, animeList)
     }
