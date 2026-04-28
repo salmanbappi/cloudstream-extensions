@@ -45,7 +45,6 @@ class DhakaFlixPlugin : Plugin() {
                     "Anime & Cartoon TV Series" to "Anime & Cartoon TV Series",
                     "Awards & TV Shows" to "Awards & TV Shows",
                     "Documentary" to "Documentary",
-                    "Tutorial" to "Tutorial",
                     "WWE & AEW Wrestling" to "WWE & AEW Wrestling"
                 )
             )

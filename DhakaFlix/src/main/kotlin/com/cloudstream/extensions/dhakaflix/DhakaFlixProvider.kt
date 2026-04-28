@@ -54,63 +54,90 @@ class DhakaFlixProvider(
         return u.replace(" ", "%20")
     }
 
-    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val doc = try {
-            app.get(request.data, headers = commonHeaders, timeout = 10).document
-        } catch (_: Exception) {
-            return newHomePageResponse(request.name, emptyList())
-        }
+    private val jsonHeaders = mapOf(
+        "Content-Type" to "application/json; charset=utf-8",
+        "Accept" to "application/json"
+    ) + commonHeaders
 
-        val results = mutableListOf<SearchResponse>()
-
-        // h5ai fallback table is usually what we see in raw HTML
-        doc.select("td.fb-n a").forEach { element ->
-            val title = element.text().trim().removeSuffix("/")
-            val url = element.attr("href").let { fixUrl(it, request.data) }
-            
-            if (isValidDirectoryItem(title, url)) {
-                // If it's a year folder, we might want to peek inside or just show it
-                // For now, let's just show it. 
-                // We can improve this by checking if it contains only directories or files.
-                
-                val finalUrl = if (url.endsWith("/")) url else "$url/"
-                val thumbSuffix = if (serverPath.contains("-9")) "a11.jpg" else "a_AL_.jpg"
-                val posterUrl = fixUrl("${finalUrl}$thumbSuffix", request.data)
-
-                results.add(newMovieSearchResponse(title, finalUrl, TvType.Movie) {
-                    this.posterUrl = posterUrl
-                })
-            }
-        }
-
-        // If no fallback table, try generic a tags
-        if (results.isEmpty()) {
-            doc.select("a").forEach { element ->
-                val title = element.text().trim().removeSuffix("/")
-                val url = element.attr("href").let { fixUrl(it, request.data) }
-                if (isValidDirectoryItem(title, url)) {
-                    val finalUrl = if (url.endsWith("/")) url else "$url/"
-                    val thumbSuffix = if (serverPath.contains("-9")) "a11.jpg" else "a_AL_.jpg"
-                    val posterUrl = fixUrl("${finalUrl}$thumbSuffix", request.data)
-
-                    results.add(newMovieSearchResponse(title, finalUrl, TvType.Movie) {
-                        this.posterUrl = posterUrl
-                    })
+    private suspend fun getH5aiItems(url: String): List<H5aiItem> {
+        val root = if (url.endsWith("/")) url else "$url/"
+        val path = "/" + root.substringAfter("//").substringAfter("/")
+        
+        return try {
+            val response = app.post(
+                root,
+                headers = jsonHeaders,
+                json = mapOf(
+                    "action" to "get",
+                    "items" to mapOf(
+                        "href" to path,
+                        "what" to 1
+                    )
+                ),
+                timeout = 10
+            )
+            val json = response.text
+            // Simple parsing to avoid heavy libraries
+            val items = mutableListOf<H5aiItem>()
+            val itemPattern = Pattern.compile("\\\"href\\\":\\\"([^\\\"]+)\\\",\\\"time\\\":(\\d+)")
+            val matcher = itemPattern.matcher(json)
+            while (matcher.find()) {
+                val href = matcher.group(1).replace("\\/", "/")
+                if (href != path && href != "/" && href != root) {
+                    items.add(H5aiItem(href, matcher.group(2).toLong()))
                 }
             }
+            items
+        } catch (_: Exception) {
+            emptyList()
         }
-
-        return newHomePageResponse(request.name, results)
     }
 
-    private fun isValidDirectoryItem(title: String, url: String): Boolean {
-        if (title.isBlank()) return false
-        val lowerTitle = title.lowercase()
-        if (isIgnored(lowerTitle)) return false
-        if (url.contains("../") || url.contains("?")) return false
-        // Ignore h5ai public folders
-        if (url.contains("/_h5ai/")) return false
-        return true
+    data class H5aiItem(val href: String, val time: Long)
+
+    override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val items = getH5aiItems(request.data)
+        val results = mutableListOf<SearchResponse>()
+
+        // Sort by time descending to get latest
+        val sortedItems = items.sortedByDescending { it.time }
+
+        // If it's a category that usually has years (like Movies), peek into the top years
+        if (sortedItems.any { it.href.contains("/(") && it.href.endsWith(")/") }) {
+            val yearFolders = sortedItems.filter { it.href.contains("/(") && it.href.endsWith(")/") }.take(2)
+            val movieItems = yearFolders.map { yearFolder ->
+                val fullYearUrl = fixUrl(yearFolder.href, serverRoot)
+                coroutineScope { async { getH5aiItems(fullYearUrl) } }
+            }.awaitAll().flatten().sortedByDescending { it.time }
+
+            movieItems.take(40).forEach { item ->
+                results.add(itemToSearchResult(item, request.data))
+            }
+        } else {
+            sortedItems.take(40).forEach { item ->
+                results.add(itemToSearchResult(item, request.data))
+            }
+        }
+
+        return newHomePageResponse(request.name, results.distinctBy { it.url })
+    }
+
+    private fun itemToSearchResult(item: H5aiItem, baseUrl: String): SearchResponse {
+        var href = item.href
+        while (href.endsWith("/")) href = href.dropLast(1)
+        val title = try {
+            URLDecoder.decode(href.substringAfterLast("/"), "UTF-8")
+        } catch (_: Exception) {
+            href.substringAfterLast("/")
+        }
+
+        val dirUrl = fixUrl("${item.href}/", serverRoot)
+        val thumbSuffix = if (serverPath.contains("-9")) "a11.jpg" else "a_AL_.jpg"
+        val posterUrl = fixUrl("$dirUrl$thumbSuffix", serverRoot)
+
+        return newMovieSearchResponse(title, dirUrl, TvType.Movie) {
+            this.posterUrl = posterUrl
+        }
     }
 
     override suspend fun search(query: String): List<SearchResponse> {
@@ -120,7 +147,7 @@ class DhakaFlixProvider(
 
             val response = app.post(
                 searchUrl,
-                headers = mapOf("Content-Type" to "application/json; charset=utf-8") + commonHeaders,
+                headers = jsonHeaders,
                 json = mapOf(
                     "action" to "get",
                     "search" to mapOf(
@@ -129,28 +156,25 @@ class DhakaFlixProvider(
                         "ignorecase" to true
                     )
                 ),
-                timeout = 8
+                timeout = 10
             )
 
-            val bodyString = response.text
-            val pattern = Pattern.compile("\\\"href\\\":\\\"([^\\\"]+)\\\"[^}]*\\\"size\\\":null", Pattern.CASE_INSENSITIVE)
-            val matcher = pattern.matcher(bodyString)
+            val json = response.text
+            val itemPattern = Pattern.compile("\\\"href\\\":\\\"([^\\\"]+)\\\",\\\"time\\\":(\\d+)")
+            val matcher = itemPattern.matcher(json)
             val searchResults = mutableListOf<SearchResponse>()
 
             while (matcher.find()) {
-                val hrefMatch = matcher.group(1) ?: continue
-                var href = hrefMatch.replace('\\', '/').trim().replace(Regex("//+"), "/")
-
-                while (href.endsWith('/')) href = href.dropLast(1)
-                val rawTitle = href.substringAfterLast("/")
-                val title = try {
-                    URLDecoder.decode(rawTitle, "UTF-8").trim()
-                } catch (_: Exception) {
-                    rawTitle.trim()
-                }
-
-                if (title.isNotBlank() && !isIgnored(title)) {
-                    val dirUrl = fixUrl("$href/", serverRoot)
+                val href = matcher.group(1).replace("\\/", "/")
+                // For search, we only want directories that are likely movies/series, or video files
+                if (!isIgnored(href)) {
+                    val title = try {
+                        URLDecoder.decode(href.removeSuffix("/").substringAfterLast("/"), "UTF-8")
+                    } catch (_: Exception) {
+                        href.removeSuffix("/").substringAfterLast("/")
+                    }
+                    
+                    val dirUrl = fixUrl(if (href.endsWith("/")) href else "$href/", serverRoot)
                     val thumbSuffix = if (serverPath.contains("-9")) "a11.jpg" else "a_AL_.jpg"
                     val posterUrl = fixUrl("$dirUrl$thumbSuffix", serverRoot)
 
@@ -166,68 +190,58 @@ class DhakaFlixProvider(
         }
     }
 
-    private fun isIgnored(text: String): Boolean {
-        val ignored = listOf(
-            "Parent Directory",
-            "modern browsers",
-            "Name",
-            "Last modified",
-            "Size",
-            "Description",
-            "Index of",
-            "JavaScript",
-            "powered by",
-            "_h5ai"
-        )
-        return ignored.any { text.contains(it, ignoreCase = true) }
-    }
-
     override suspend fun load(url: String): LoadResponse? {
         val fixedUrl = fixUrl(url, serverRoot)
-        val document = try {
-            app.get(fixedUrl, headers = commonHeaders, timeout = 15).document
+        val items = getH5aiItems(fixedUrl)
+        
+        val title = try {
+            URLDecoder.decode(fixedUrl.removeSuffix("/").substringAfterLast("/"), "UTF-8")
         } catch (_: Exception) {
-            return null
-        }
+            fixedUrl.removeSuffix("/").substringAfterLast("/")
+        }.replace("Index of", "").trim()
 
-        val mediaType = getMediaType(document)
-        val title = document.title().replace("Index of", "").trim().ifBlank { fixedUrl.substringAfterLast('/').ifBlank { name } }
+        val thumbSuffix = if (serverPath.contains("-9")) "a11.jpg" else "a_AL_.jpg"
+        val poster = fixUrl("${fixedUrl}$thumbSuffix", fixedUrl)
 
-        val poster = document.selectFirst("figure.movie-detail-banner img, .movie-detail-banner img, .col-md-3 img, .poster img")
-            ?.attr("src")?.let { fixUrl(it, fixedUrl) }
-            ?: fixUrl(fixedUrl + (if (fixedUrl.endsWith("/")) "" else "/") + "a_AL_.jpg", fixedUrl)
+        val videoFiles = items.filter { isVideoFile(it.href) }
+        val subDirs = items.filter { it.href.endsWith("/") && !isIgnored(it.href) }
 
-        val desc = document.selectFirst("p.storyline")?.text()?.trim()
-
-        if (mediaType == "m") {
-            val dataUrl = document.select("div.col-md-12 a.btn, .movie-buttons a, a[href*=/m/lazyload/], a[href*=/s/lazyload/], .download-link a")
-                .lastOrNull()?.attr("href")?.let { fixUrl(it, fixedUrl) } ?: fixedUrl
-
-            return newMovieLoadResponse(title, fixedUrl, TvType.Movie, dataUrl) {
+        if (videoFiles.size == 1 && subDirs.isEmpty()) {
+            return newMovieLoadResponse(title, fixedUrl, TvType.Movie, fixUrl(videoFiles[0].href, serverRoot)) {
                 this.posterUrl = poster
-                this.plot = desc
             }
         }
 
         val episodes = mutableListOf<Episode>()
-        if (mediaType == "s") {
-            val extracted = extractEpisodes(document, fixedUrl)
-            if (extracted.isNotEmpty()) {
-                extracted.forEach { epData ->
-                    episodes.add(newEpisode(epData.videoUrl) {
-                        this.name = "${epData.seasonEpisode} - ${epData.episodeName}"
-                    })
-                }
-            } else {
-                episodes.addAll(parseDirectoryParallel(document, fixedUrl))
-            }
-        } else {
-            episodes.addAll(parseDirectoryParallel(document, fixedUrl))
+        
+        // If there are video files, they are episodes
+        videoFiles.forEach { file ->
+            episodes.add(newEpisode(fixUrl(file.href, serverRoot)) {
+                this.name = try { URLDecoder.decode(file.href.substringAfterLast("/"), "UTF-8") } catch (_: Exception) { file.href.substringAfterLast("/") }
+            })
         }
 
-        return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes) {
+        // If there are subdirectories, peek into them for episodes (Seasons)
+        if (subDirs.isNotEmpty() && episodes.isEmpty()) {
+            val nested = subDirs.map { dir ->
+                coroutineScope {
+                    async {
+                        val subItems = getH5aiItems(fixUrl(dir.href, serverRoot))
+                        subItems.filter { isVideoFile(it.href) }.map { file ->
+                            newEpisode(fixUrl(file.href, serverRoot)) {
+                                val folderName = try { URLDecoder.decode(dir.href.removeSuffix("/").substringAfterLast("/"), "UTF-8") } catch (_: Exception) { dir.href.removeSuffix("/").substringAfterLast("/") }
+                                val fileName = try { URLDecoder.decode(file.href.substringAfterLast("/"), "UTF-8") } catch (_: Exception) { file.href.substringAfterLast("/") }
+                                this.name = "$folderName - $fileName"
+                            }
+                        }
+                    }
+                }
+            }.awaitAll().flatten()
+            episodes.addAll(nested)
+        }
+
+        return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes.sortedBy { it.name }) {
             this.posterUrl = poster
-            this.plot = desc
         }
     }
 
