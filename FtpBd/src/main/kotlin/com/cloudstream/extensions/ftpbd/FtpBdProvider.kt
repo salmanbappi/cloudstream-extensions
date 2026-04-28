@@ -189,7 +189,10 @@ class FtpBdProvider : MainAPI() {
 
     private fun isTvSeries(url: String): Boolean {
         val lowerUrl = url.lowercase()
-        return lowerUrl.contains("tv series") || lowerUrl.contains("tv serias") || lowerUrl.contains("anime--cartoon-tv-series")
+        return lowerUrl.contains("tv series") ||
+            lowerUrl.contains("tv-series") ||
+            lowerUrl.contains("tv serias") ||
+            lowerUrl.contains("anime--cartoon-tv-series")
     }
 
     override suspend fun load(url: String): LoadResponse {
