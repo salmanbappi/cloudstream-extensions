@@ -247,25 +247,14 @@ class FtpBdProvider : MainAPI() {
         try {
             val doc = app.get(url).document
             var episodeNum = 0
-            doc.select("tbody > tr:gt(1) > td.fb-n > a[href~=(?i)\\.(mkv|mp4|avi|ts|m4v|webm|mov)]").forEach {
-                episodeNum++
-                val folderHtml = it
-                val name = folderHtml.text()
-                val link = fixUrl(folderHtml.attr("href"), url)
-                episodesData.add(
-                    newEpisode(link) {
-                        this.name = name
-                        this.season = seasonNum
-                        this.episode = episodeNum
-                    }
-                )
-            }
-            if (episodeNum == 0) {
-                doc.select("a[href~=(?i)\\.(mkv|mp4|avi|ts|m4v|webm|mov)]").forEach {
+            val links = doc.select("td.fb-n > a").filter { !it.text().equals("Parent Directory", ignoreCase = true) }
+
+            links.forEach { linkEl ->
+                val href = linkEl.attr("href")
+                val link = fixUrl(href, url)
+                val name = linkEl.text()
+                if (href.matches(Regex(".*\\.(mkv|mp4|avi|ts|m4v|webm|mov)$", RegexOption.IGNORE_CASE))) {
                     episodeNum++
-                    val folderHtml = it
-                    val name = folderHtml.text()
-                    val link = fixUrl(folderHtml.attr("href"), url)
                     episodesData.add(
                         newEpisode(link) {
                             this.name = name
@@ -273,6 +262,15 @@ class FtpBdProvider : MainAPI() {
                             this.episode = episodeNum
                         }
                     )
+                }
+            }
+
+            // Some folders add one more nesting level under each season; crawl those when no files were found.
+            if (episodeNum == 0) {
+                links.forEach { linkEl ->
+                    if (linkEl.attr("href").endsWith("/")) {
+                        seasonExtractor(fixUrl(linkEl.attr("href"), url), episodesData, seasonNum)
+                    }
                 }
             }
         } catch (_: Exception) {}
