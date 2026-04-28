@@ -21,11 +21,13 @@ class FtpBdProvider : MainAPI() {
     private val year = Calendar.getInstance().get(Calendar.YEAR)
 
     override val mainPage = mainPageOf(
-        "http://server3.ftpbd.net/FTP-3/Hindi%20Movies/$year/" to "Hindi Movies ($year)",
-        "http://server3.ftpbd.net/FTP-3/English%20Movies/$year/" to "English Movies ($year)",
-        "http://server3.ftpbd.net/FTP-3/Animation%20Movies/" to "Animation Movies",
-        "http://server3.ftpbd.net/FTP-1/TV%20Series/" to "TV Series",
-        "http://server3.ftpbd.net/FTP-3/South%20Indian%20Movies/" to "South Indian Movies"
+        "https://server3.ftpbd.net/FTP-3/Hindi%20Movies/$year/" to "Hindi Movies",
+        "https://server2.ftpbd.net/FTP-2/English%20Movies/$year/" to "English Movies",
+        "https://server3.ftpbd.net/FTP-3/South%20Indian%20Movies/$year/" to "South Indian Movies",
+        "https://server3.ftpbd.net/FTP-3/South%20Indian%20Movies/HINDI-DUBBED/$year/" to "South Indian (Hindi Dubbed)",
+        "https://server5.ftpbd.net/FTP-5/Animation%20Movies/" to "Animation Movies",
+        "https://server5.ftpbd.net/FTP-5/Anime--Cartoon-TV-Series/" to "Anime & Cartoon",
+        "https://server4.ftpbd.net/FTP-4/English-Foreign-TV-Series/" to "TV Series"
     )
 
     private val commonHeaders = mapOf(
@@ -60,10 +62,10 @@ class FtpBdProvider : MainAPI() {
         if (url.isBlank()) return url
         var u = url.trim()
         if (!u.startsWith("http")) {
-            u = if (u.startsWith("//")) "http:$u"
+            u = if (u.startsWith("//")) "https:$u"
             else if (u.startsWith("/")) {
                 val host = if (baseUrl.contains("//")) {
-                    baseUrl.substringBefore("/", "http://")
+                    baseUrl.substringBefore("/", "https://")
                 } else baseUrl
                 "$host$u"
             }
@@ -77,15 +79,17 @@ class FtpBdProvider : MainAPI() {
         val searchResults = mutableListOf<SearchResponse>()
         
         val searchPaths = listOf(
-            "http://server3.$baseDomain/FTP-3/Hindi%20Movies/2025/",
-            "http://server3.$baseDomain/FTP-3/Hindi%20Movies/2024/",
-            "http://server3.$baseDomain/FTP-3/Hindi%20Movies/",
-            "http://server3.$baseDomain/FTP-3/English%20Movies/2025/",
-            "http://server3.$baseDomain/FTP-3/English%20Movies/2024/",
-            "http://server3.$baseDomain/FTP-3/English%20Movies/",
-            "http://server3.$baseDomain/FTP-3/Animation%20Movies/",
-            "http://server3.$baseDomain/FTP-1/TV%20Series/",
-            "http://server3.$baseDomain/FTP-3/South%20Indian%20Movies/"
+            "https://server3.$baseDomain/FTP-3/Hindi%20Movies/$year/",
+            "https://server3.$baseDomain/FTP-3/Hindi%20Movies/${year - 1}/",
+            "https://server3.$baseDomain/FTP-3/Hindi%20Movies/",
+            "https://server2.$baseDomain/FTP-2/English%20Movies/$year/",
+            "https://server2.$baseDomain/FTP-2/English%20Movies/${year - 1}/",
+            "https://server2.$baseDomain/FTP-2/English%20Movies/",
+            "https://server5.$baseDomain/FTP-5/Animation%20Movies/",
+            "https://server5.$baseDomain/FTP-5/Anime--Cartoon-TV-Series/",
+            "https://server4.$baseDomain/FTP-4/English-Foreign-TV-Series/",
+            "https://server3.$baseDomain/FTP-3/South%20Indian%20Movies/$year/",
+            "https://server3.$baseDomain/FTP-3/South%20Indian%20Movies/HINDI-DUBBED/$year/"
         )
 
         val responses = coroutineScope {
