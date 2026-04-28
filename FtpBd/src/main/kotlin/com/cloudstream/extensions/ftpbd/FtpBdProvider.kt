@@ -21,7 +21,6 @@ class FtpBdProvider : MainAPI() {
     override var name = "FtpBd"
     override val hasMainPage = true
     override val hasDownloadSupport = true
-    override val hasQuickSearch = false
     override val instantLinkLoading = true
     override var lang = "bn"
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries, TvType.AnimeMovie)
@@ -33,7 +32,7 @@ class FtpBdProvider : MainAPI() {
         "https://server2.ftpbd.net/FTP-2/English%20Movies/$year/" to "English Movies ($year)",
         "https://server3.ftpbd.net/FTP-3/South%20Indian%20Movies/$year/" to "South Indian Movies ($year)",
         "https://server3.ftpbd.net/FTP-3/South%20Indian%20Movies/HINDI-DUBBED/$year/" to "South Indian (Hindi Dubbed)",
-        "https://server5.ftpbd.net/FTP-5/Animation%20Movies/$year/" to "Animation Movies",
+        "https://server5.ftpbd.net/FTP-5/Animation%20Movies/($year)/" to "Animation Movies",
         "https://server5.ftpbd.net/FTP-5/Anime--Cartoon-TV-Series/" to "Anime & Cartoon",
         "https://server4.ftpbd.net/FTP-4/English-Foreign-TV-Series/" to "TV Series"
     )
@@ -44,7 +43,9 @@ class FtpBdProvider : MainAPI() {
         if (!u.startsWith("http")) {
             u = if (u.startsWith("//")) "https:$u"
             else if (u.startsWith("/")) {
-                val host = baseUrl.substringBefore("/", "https://")
+                val host = if (baseUrl.contains("//")) {
+                    baseUrl.substringBefore("//") + "//" + baseUrl.substringAfter("//").substringBefore("/")
+                } else baseUrl
                 "$host$u"
             } else {
                 val base = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
