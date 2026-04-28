@@ -95,26 +95,39 @@ class DhakaFlixProvider(
 
     data class H5aiItem(val href: String, val time: Long)
 
+    private fun isIntermediateFolder(href: String): Boolean {
+        val decoded = try { URLDecoder.decode(href.removeSuffix("/").substringAfterLast("/"), "UTF-8") } catch(_: Exception) { href.removeSuffix("/").substringAfterLast("/") }
+        val name = decoded.trim()
+        
+        if (name.matches(Regex("""^\(\d{4}\)$"""))) return true
+        if (name.matches(Regex("""^\d{4}$"""))) return true
+        if (name.matches(Regex("""^\d{4}\s*&\s*Before$""", RegexOption.IGNORE_CASE))) return true
+        if (name.matches(Regex("""^\(\d{4}\)\s+\w+$"""))) return true
+        if (name.contains("—")) return true
+        if (name.contains("★") || name.contains("♥") || name.contains("♦") || name.contains("♣")) return true
+        if (name.startsWith("Season ", ignoreCase = true)) return true
+        if (name.equals("South Movies", ignoreCase = true) || name.equals("Hindi Dubbed", ignoreCase = true)) return true
+        return false
+    }
+
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val items = getH5aiItems(request.data)
         val results = mutableListOf<SearchResponse>()
 
-        // Sort by time descending to get latest
         val sortedItems = items.sortedByDescending { it.time }
+        val intermediateFolders = sortedItems.filter { it.href.endsWith("/") && isIntermediateFolder(it.href) }
 
-        // If it's a category that usually has years (like Movies), peek into the top years
-        if (sortedItems.any { it.href.contains("/(") && it.href.endsWith(")/") }) {
-            val yearFolders = sortedItems.filter { it.href.contains("/(") && it.href.endsWith(")/") }.take(2)
-            val movieItems = yearFolders.map { yearFolder ->
-                val fullYearUrl = fixUrl(yearFolder.href, serverRoot)
-                coroutineScope { async { getH5aiItems(fullYearUrl) } }
-            }.awaitAll().flatten().sortedByDescending { it.time }
+        if (intermediateFolders.isNotEmpty()) {
+            val foldersToPeek = intermediateFolders.take(4)
+            val nestedItems = foldersToPeek.map { folder ->
+                coroutineScope { async { getH5aiItems(fixUrl(folder.href, serverRoot)) } }
+            }.awaitAll().flatten()
 
-            movieItems.take(40).forEach { item ->
+            nestedItems.filter { !isIntermediateFolder(it.href) }.sortedByDescending { it.time }.take(40).forEach { item ->
                 results.add(itemToSearchResult(item, request.data))
             }
         } else {
-            sortedItems.take(40).forEach { item ->
+            sortedItems.filter { !isIntermediateFolder(it.href) }.take(40).forEach { item ->
                 results.add(itemToSearchResult(item, request.data))
             }
         }
@@ -163,28 +176,39 @@ class DhakaFlixProvider(
             val itemPattern = Pattern.compile("\\\"href\\\":\\\"([^\\\"]+)\\\",\\\"time\\\":(\\d+)")
             val matcher = itemPattern.matcher(json)
             val searchResults = mutableListOf<SearchResponse>()
+            val addedUrls = mutableSetOf<String>()
 
             while (matcher.find()) {
                 val href = matcher.group(1).replace("\\/", "/")
-                // For search, we only want directories that are likely movies/series, or video files
-                if (!isIgnored(href)) {
-                    val title = try {
-                        URLDecoder.decode(href.removeSuffix("/").substringAfterLast("/"), "UTF-8")
-                    } catch (_: Exception) {
-                        href.removeSuffix("/").substringAfterLast("/")
-                    }
-                    
-                    val dirUrl = fixUrl(if (href.endsWith("/")) href else "$href/", serverRoot)
-                    val thumbSuffix = if (serverPath.contains("-9")) "a11.jpg" else "a_AL_.jpg"
-                    val posterUrl = fixUrl("$dirUrl$thumbSuffix", serverRoot)
+                
+                if (isIgnored(href)) continue
 
-                    searchResults.add(newMovieSearchResponse(title, dirUrl, TvType.Movie) {
-                        this.posterUrl = posterUrl
-                    })
+                val folderHref = if (isVideoFile(href)) {
+                    href.substringBeforeLast("/") + "/"
+                } else if (!href.endsWith("/")) {
+                    "$href/"
+                } else href
+
+                if (isIntermediateFolder(folderHref)) continue
+                if (addedUrls.contains(folderHref)) continue
+                addedUrls.add(folderHref)
+
+                val title = try {
+                    URLDecoder.decode(folderHref.removeSuffix("/").substringAfterLast("/"), "UTF-8")
+                } catch (_: Exception) {
+                    folderHref.removeSuffix("/").substringAfterLast("/")
                 }
+                
+                val dirUrl = fixUrl(folderHref, serverRoot)
+                val thumbSuffix = if (serverPath.contains("-9")) "a11.jpg" else "a_AL_.jpg"
+                val posterUrl = fixUrl("$dirUrl$thumbSuffix", serverRoot)
+
+                searchResults.add(newMovieSearchResponse(title, dirUrl, TvType.Movie) {
+                    this.posterUrl = posterUrl
+                })
             }
 
-            searchResults.distinctBy { it.url }
+            searchResults
         } catch (_: Exception) {
             emptyList()
         }
@@ -192,6 +216,13 @@ class DhakaFlixProvider(
 
     override suspend fun load(url: String): LoadResponse? {
         val fixedUrl = fixUrl(url, serverRoot)
+        
+        if (isVideoFile(fixedUrl)) {
+            val parentUrl = fixedUrl.substringBeforeLast("/") + "/"
+            val title = try { URLDecoder.decode(fixedUrl.substringAfterLast("/"), "UTF-8") } catch (_: Exception) { fixedUrl.substringAfterLast("/") }
+            return newMovieLoadResponse(title, parentUrl, TvType.Movie, fixedUrl)
+        }
+
         val items = getH5aiItems(fixedUrl)
         
         val title = try {
@@ -214,15 +245,15 @@ class DhakaFlixProvider(
 
         val episodes = mutableListOf<Episode>()
         
-        // If there are video files, they are episodes
+        // If there are video files directly in the folder, treat as episodes (or multi-part movie)
         videoFiles.forEach { file ->
             episodes.add(newEpisode(fixUrl(file.href, serverRoot)) {
                 this.name = try { URLDecoder.decode(file.href.substringAfterLast("/"), "UTF-8") } catch (_: Exception) { file.href.substringAfterLast("/") }
             })
         }
 
-        // If there are subdirectories, peek into them for episodes (Seasons)
-        if (subDirs.isNotEmpty() && episodes.isEmpty()) {
+        // If there are subdirectories (like Season 1), peek into them
+        if (subDirs.isNotEmpty()) {
             val nested = subDirs.map { dir ->
                 coroutineScope {
                     async {
@@ -238,6 +269,12 @@ class DhakaFlixProvider(
                 }
             }.awaitAll().flatten()
             episodes.addAll(nested)
+        }
+
+        if (episodes.isEmpty() && videoFiles.isEmpty()) {
+             return newMovieLoadResponse(title, fixedUrl, TvType.Movie, fixedUrl) {
+                this.posterUrl = poster
+            }
         }
 
         return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes.sortedBy { it.name }) {
