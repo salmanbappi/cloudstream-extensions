@@ -68,24 +68,33 @@ class FtpBdProvider : MainAPI() {
         val searchPaths = listOf(
             "http://server3.$baseDomain/FTP-3/Hindi%20Movies/2025/",
             "http://server3.$baseDomain/FTP-3/Hindi%20Movies/2024/",
-            "http://server3.$baseDomain/FTP-3/Hindi%20Movies/"
+            "http://server3.$baseDomain/FTP-3/Hindi%20Movies/",
+            "http://server3.$baseDomain/FTP-3/English%20Movies/2025/",
+            "http://server3.$baseDomain/FTP-3/English%20Movies/2024/",
+            "http://server3.$baseDomain/FTP-3/English%20Movies/",
+            "http://server3.$baseDomain/FTP-3/Animation%20Movies/",
+            "http://server3.$baseDomain/FTP-1/TV%20Series/",
+            "http://server3.$baseDomain/FTP-3/South%20Indian%20Movies/"
         )
 
-        searchPaths.forEach { path ->
+        val responses = app.getRequests(searchPaths.map { okhttp3.Request.Builder().url(it).headers(okhttp3.Headers.headersOf("User-Agent", commonHeaders["User-Agent"]!!)).build() }).map { it.document }
+        
+        responses.forEachIndexed { index, doc ->
+            val path = searchPaths[index]
             try {
-                val doc = app.get(path, headers = commonHeaders, timeout = 10).document
                 val items = doc.select("td.fb-n a, div.entry-content a, table tr a")
                 items.forEach { link ->
                     val title = link.text().trim()
                     if (title.contains(query, true)) {
                         val url = fixUrl(link.attr("href"), path)
                         if (!url.contains("?") && !url.endsWith("..")) {
-                            searchResults.add(newMovieSearchResponse(title, url, TvType.Movie))
+                            searchResults.add(newMovieSearchResponse(title.removeSuffix("/"), url, TvType.Movie))
                         }
                     }
                 }
-            } catch (e: Exception) { }
+            } catch (_: Exception) { }
         }
+        
         return searchResults.distinctBy { it.url }
     }
 
@@ -101,52 +110,82 @@ class FtpBdProvider : MainAPI() {
         val poster = document.selectFirst("img[src~=(?i)a11|poster|banner|thumb]")?.attr("src")?.let { fixUrl(it, fixedUrl) }
             ?: fixUrl("poster.jpg", fixedUrl)
 
-        val episodes = mutableListOf<Episode>()
-        val visited = mutableSetOf<String>()
-        
-        parseDirectoryRecursive(document, 3, episodes, visited, fixedUrl)
-        
-        if (episodes.isNotEmpty()) {
-             return newTvSeriesLoadResponse(title, fixedUrl, TvType.TvSeries, episodes.sortedBy { it.name }) {
-                 this.posterUrl = poster
-             }
+        val tableHtml = document.select("tbody > tr:gt(1)")
+        val isTvSeries = url.contains("TV Series", ignoreCase = true) || url.contains("TV Serias", ignoreCase = true)
+
+        if (isTvSeries) {
+            val episodesData = mutableListOf<Episode>()
+            var seasonNum = 0
+            val name = title.ifBlank { fixedUrl.substringAfterLast("/").removeSuffix("/") }
+            
+            tableHtml.forEach {
+                val aHtml = it.selectFirst("td.fb-n > a") ?: return@forEach
+                val link = fixUrl(aHtml.attr("href"), fixedUrl)
+                if (it.selectFirst("td.fb-i > img")?.attr("alt") == "folder") {
+                    seasonNum++
+                    seasonExtractor(link, episodesData, seasonNum)
+                } else if (aHtml.selectFirst("a[href~=(?i)\\.(mkv|mp4|avi|ts|m4v|webm|mov)]") != null || aHtml.attr("href").matches(Regex(".*\\.(mkv|mp4|avi|ts|m4v|webm|mov)$", RegexOption.IGNORE_CASE))) {
+                    val epTitle = aHtml.text()
+                    episodesData.add(
+                        newEpisode(link) {
+                            this.name = epTitle
+                            this.season = 1
+                        }
+                    )
+                }
+            }
+
+            return newTvSeriesLoadResponse(name, fixedUrl, TvType.TvSeries, episodesData) {
+                this.posterUrl = poster
+            }
+        } else {
+            val folderHtml = tableHtml.selectFirst("td.fb-n > a[href~=(?i)\\.(mkv|mp4|avi|ts|m4v|webm|mov)]")
+                ?: document.selectFirst("a[href~=(?i)\\.(mkv|mp4|avi|ts|m4v|webm|mov)]")
+            
+            val name = folderHtml?.text()?.toString() ?: title.ifBlank { fixedUrl.substringAfterLast("/").removeSuffix("/") }
+            val link = if (folderHtml != null) fixUrl(folderHtml.attr("href"), fixedUrl) else fixedUrl
+            
+            return newMovieLoadResponse(name, fixedUrl, TvType.Movie, link) {
+                this.posterUrl = poster
+            }
         }
-        return null
     }
 
-    private suspend fun parseDirectoryRecursive(document: Document, depth: Int, episodes: MutableList<Episode>, visited: MutableSet<String>, currentUrl: String) {
-        if (!visited.add(currentUrl)) return
-
-        val links = document.select("a[href]")
-        val files = mutableListOf<Pair<String, String>>()
-        val dirs = mutableListOf<String>()
-
-        links.forEach { element ->
-            val href = element.attr("href")?.let { fixUrl(it, currentUrl) } ?: ""
-            val text = element.text().trim()
-            if (href.contains("?") || text.equals("parent directory", true) || href.endsWith("../")) return@forEach
-            
-            if (isVideoFile(href)) {
-                files.add(text to href)
-            } else if (href.endsWith("/")) {
-                dirs.add(href)
+    private suspend fun seasonExtractor(
+        url: String, episodesData: MutableList<Episode>, seasonNum: Int
+    ) {
+        try {
+            val doc = app.get(url, headers = commonHeaders, timeout = 10).document
+            var episodeNum = 0
+            doc.select("tbody > tr:gt(1) > td.fb-n > a[href~=(?i)\\.(mkv|mp4|avi|ts|m4v|webm|mov)]").forEach {
+                episodeNum++
+                val folderHtml = it
+                val name = folderHtml.text()
+                val link = fixUrl(folderHtml.attr("href"), url)
+                episodesData.add(
+                    newEpisode(link) {
+                        this.name = name
+                        this.season = seasonNum
+                        this.episode = episodeNum
+                    }
+                )
             }
-        }
-
-        files.forEach { (name, url) ->
-            episodes.add(newEpisode(url) {
-                this.name = name
-            })
-        }
-
-        if (depth > 0 && files.isEmpty()) {
-            dirs.forEach { dirUrl ->
-                try {
-                    val doc = app.get(dirUrl, headers = commonHeaders, timeout = 5).document
-                    parseDirectoryRecursive(doc, depth - 1, episodes, visited, dirUrl)
-                } catch (e: Exception) {}
+            if (episodeNum == 0) {
+                doc.select("a[href~=(?i)\\.(mkv|mp4|avi|ts|m4v|webm|mov)]").forEach {
+                    episodeNum++
+                    val folderHtml = it
+                    val name = folderHtml.text()
+                    val link = fixUrl(folderHtml.attr("href"), url)
+                    episodesData.add(
+                        newEpisode(link) {
+                            this.name = name
+                            this.season = seasonNum
+                            this.episode = episodeNum
+                        }
+                    )
+                }
             }
-        }
+        } catch (_: Exception) {}
     }
 
     override suspend fun loadLinks(
@@ -160,11 +199,11 @@ class FtpBdProvider : MainAPI() {
             newExtractorLink(
                 source = name,
                 name = name,
-                url = url
-            ) {
-                this.referer = "$mainUrl/"
-                this.headers = commonHeaders
-            }
+                url = url,
+                referer = "$mainUrl/",
+                quality = Qualities.Unknown.value,
+                type = ExtractorLinkType.VIDEO
+            )
         )
         return true
     }
