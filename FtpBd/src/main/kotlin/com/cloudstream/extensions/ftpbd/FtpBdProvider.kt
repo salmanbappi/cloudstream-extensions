@@ -117,7 +117,7 @@ class FtpBdProvider : MainAPI() {
                         val response = app.post(host + path, requestBody = body, timeout = 15).text
                         val searchJson = AppUtils.parseJson<SearchResult>(response)
                         
-                        searchJson.search.take(40).forEach { post ->
+                        searchJson.search.take(200).forEach { post ->
                             if (post.size == null) {
                                 val href = post.href
                                 val title = nameFromUrl(href).removeSuffix("/")
@@ -133,12 +133,40 @@ class FtpBdProvider : MainAPI() {
                                 }
                             }
                         }
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                        searchFromHtmlListing(host, path, query).forEach {
+                            searchResponse.add(it)
+                        }
+                    }
                 }
             }.awaitAll()
         }
         
         return searchResponse.distinctBy { it.url }
+    }
+
+    private suspend fun searchFromHtmlListing(host: String, path: String, query: String): List<SearchResponse> {
+        return try {
+            val doc = app.get(host + path, timeout = 15).document
+            val queryLower = query.trim().lowercase()
+            if (queryLower.isBlank()) return emptyList()
+
+            doc.select("tbody > tr:gt(0)").mapNotNull { post ->
+                val folderHtml = post.selectFirst("td.fb-n > a") ?: return@mapNotNull null
+                val title = folderHtml.text().removeSuffix("/").trim()
+                if (title.isBlank() || title.equals("Parent Directory", ignoreCase = true)) return@mapNotNull null
+                if (!title.lowercase().contains(queryLower)) return@mapNotNull null
+
+                val itemUrl = fixUrl(folderHtml.attr("href"), host + path)
+                val type = if (isTvSeries(itemUrl) || path.contains("TV-Series", ignoreCase = true)) TvType.TvSeries else TvType.Movie
+
+                newMovieSearchResponse(title, itemUrl, type) {
+                    this.posterUrl = fixUrl("a_AL_.jpg", itemUrl)
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private val nameRegex = Regex(""".*/([^/]+)(?:/[^/]*)*$""")
