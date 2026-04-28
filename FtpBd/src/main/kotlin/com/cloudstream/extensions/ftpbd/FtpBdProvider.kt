@@ -6,6 +6,9 @@ import com.lagradost.cloudstream3.app
 import org.jsoup.nodes.Document
 import java.util.regex.Pattern
 import kotlin.text.RegexOption
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 class FtpBdProvider : MainAPI() {
     override var mainUrl = "http://server3.ftpbd.net"
@@ -77,22 +80,33 @@ class FtpBdProvider : MainAPI() {
             "http://server3.$baseDomain/FTP-3/South%20Indian%20Movies/"
         )
 
-        val responses = app.getRequests(searchPaths.map { okhttp3.Request.Builder().url(it).headers(okhttp3.Headers.headersOf("User-Agent", commonHeaders["User-Agent"]!!)).build() }).map { it.document }
-        
-        responses.forEachIndexed { index, doc ->
-            val path = searchPaths[index]
-            try {
-                val items = doc.select("td.fb-n a, div.entry-content a, table tr a")
-                items.forEach { link ->
-                    val title = link.text().trim()
-                    if (title.contains(query, true)) {
-                        val url = fixUrl(link.attr("href"), path)
-                        if (!url.contains("?") && !url.endsWith("..")) {
-                            searchResults.add(newMovieSearchResponse(title.removeSuffix("/"), url, TvType.Movie))
-                        }
+        val responses = coroutineScope {
+            searchPaths.map { path ->
+                async {
+                    try {
+                        path to app.get(path, headers = commonHeaders, timeout = 10).document
+                    } catch (_: Exception) {
+                        path to null
                     }
                 }
-            } catch (_: Exception) { }
+            }.awaitAll()
+        }
+        
+        responses.forEach { (path, doc) ->
+            if (doc != null) {
+                try {
+                    val items = doc.select("td.fb-n a, div.entry-content a, table tr a")
+                    items.forEach { link ->
+                        val title = link.text().trim()
+                        if (title.contains(query, true)) {
+                            val url = fixUrl(link.attr("href"), path)
+                            if (!url.contains("?") && !url.endsWith("..")) {
+                                searchResults.add(newMovieSearchResponse(title.removeSuffix("/"), url, TvType.Movie))
+                            }
+                        }
+                    }
+                } catch (_: Exception) { }
+            }
         }
         
         return searchResults.distinctBy { it.url }
@@ -199,11 +213,10 @@ class FtpBdProvider : MainAPI() {
             newExtractorLink(
                 source = name,
                 name = name,
-                url = url,
-                referer = "$mainUrl/",
-                quality = Qualities.Unknown.value,
-                type = ExtractorLinkType.VIDEO
-            )
+                url = url
+            ) {
+                this.referer = "$mainUrl/"
+            }
         )
         return true
     }
