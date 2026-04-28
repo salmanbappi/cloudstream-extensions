@@ -12,6 +12,7 @@ class DhakaFlixProvider(
     private val providerName: String,
     private val serverRoot: String,
     private val serverPath: String,
+    private val categories: Map<String, String> = emptyMap()
 ) : MainAPI() {
     override var mainUrl = serverRoot
     override var name = providerName
@@ -19,9 +20,9 @@ class DhakaFlixProvider(
     override var lang = "bn"
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
 
-    override val mainPage = mainPageOf(
-        "$serverRoot/$serverPath/" to "Index"
-    )
+    override val mainPage = categories.map { (name, path) ->
+        mainPageOf("$serverRoot/$serverPath/$path/" to name)
+    }.flatten()
 
     private val commonHeaders = mapOf(
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -30,6 +31,7 @@ class DhakaFlixProvider(
     private val doubleProtocolRegex = Regex("""https?://https?://""", RegexOption.IGNORE_CASE)
     private val multiSlashRegex = Regex("""(?<!:)/{2,}""")
     private val sizeRegex = Regex("""(\d+\.\d+ [GM]B|\d+ [GM]B).*""", RegexOption.IGNORE_CASE)
+    private val yearRegex = Regex("""\((\d{4})\)""")
 
     private fun fixUrl(url: String, baseUrl: String = mainUrl): String {
         if (url.isBlank()) return url
@@ -61,35 +63,37 @@ class DhakaFlixProvider(
 
         val results = mutableListOf<SearchResponse>()
 
-        val cards = doc.select("div.card")
-        if (cards.isNotEmpty()) {
-            cards.forEach { card ->
-                val link = card.selectFirst("h5 a")
-                val title = link?.text().orEmpty()
-                val url = link?.attr("href")?.let { fixUrl(it, request.data) }.orEmpty()
-                if (title.isNotBlank() && url.isNotBlank()) {
-                    val img = card.selectFirst("img[src~=(?i)a11|a_al|poster|banner|thumb], img:not([src~=(?i)back|folder|parent|icon|/icons/])")
-                    val posterUrl = (
-                        img?.attr("data-src")?.takeIf { it.isNotBlank() }
-                            ?: img?.attr("data-lazy-src")?.takeIf { it.isNotBlank() }
-                            ?: img?.attr("src").orEmpty()
-                    ).let { fixUrl(it, request.data) }
+        // h5ai fallback table is usually what we see in raw HTML
+        doc.select("td.fb-n a").forEach { element ->
+            val title = element.text().trim().removeSuffix("/")
+            val url = element.attr("href").let { fixUrl(it, request.data) }
+            
+            if (isValidDirectoryItem(title, url)) {
+                // If it's a year folder, we might want to peek inside or just show it
+                // For now, let's just show it. 
+                // We can improve this by checking if it contains only directories or files.
+                
+                val finalUrl = if (url.endsWith("/")) url else "$url/"
+                val thumbSuffix = if (serverPath.contains("-9")) "a11.jpg" else "a_AL_.jpg"
+                val posterUrl = fixUrl("${finalUrl}$thumbSuffix", request.data)
 
-                    results.add(newMovieSearchResponse(title, url, TvType.Movie) {
-                        this.posterUrl = posterUrl
-                    })
-                }
+                results.add(newMovieSearchResponse(title, finalUrl, TvType.Movie) {
+                    this.posterUrl = posterUrl
+                })
             }
-        } else {
+        }
+
+        // If no fallback table, try generic a tags
+        if (results.isEmpty()) {
             doc.select("a").forEach { element ->
-                val title = element.text()
+                val title = element.text().trim().removeSuffix("/")
                 val url = element.attr("href").let { fixUrl(it, request.data) }
                 if (isValidDirectoryItem(title, url)) {
-                    val cleanTitle = if (title.endsWith("/")) title.dropLast(1) else title
                     val finalUrl = if (url.endsWith("/")) url else "$url/"
-                    val posterUrl = fixUrl("${finalUrl}a_AL_.jpg", request.data)
+                    val thumbSuffix = if (serverPath.contains("-9")) "a11.jpg" else "a_AL_.jpg"
+                    val posterUrl = fixUrl("${finalUrl}$thumbSuffix", request.data)
 
-                    results.add(newMovieSearchResponse(cleanTitle, url, TvType.Movie) {
+                    results.add(newMovieSearchResponse(title, finalUrl, TvType.Movie) {
                         this.posterUrl = posterUrl
                     })
                 }
@@ -100,9 +104,12 @@ class DhakaFlixProvider(
     }
 
     private fun isValidDirectoryItem(title: String, url: String): Boolean {
+        if (title.isBlank()) return false
         val lowerTitle = title.lowercase()
         if (isIgnored(lowerTitle)) return false
         if (url.contains("../") || url.contains("?")) return false
+        // Ignore h5ai public folders
+        if (url.contains("/_h5ai/")) return false
         return true
     }
 
