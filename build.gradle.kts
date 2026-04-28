@@ -68,7 +68,8 @@ subprojects {
         cloudstream("com.github.recloudstream.cloudstream:-SNAPSHOT")
         
         implementation(kotlin("stdlib"))
-        implementation("com.github.Blatzar:NiceHttp:0.4.13")
+        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+        implementation("com.github.Blatzar:NiceHttp:0.4.18")
         implementation("androidx.core:core-ktx:1.12.0")
         implementation("org.jsoup:jsoup:1.18.1")
         implementation("com.github.recloudstream.cloudstream:library:-SNAPSHOT")
