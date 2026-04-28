@@ -4,6 +4,8 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.app
 import org.jsoup.nodes.Element
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 class DflixProvider : MainAPI() {
     override var mainUrl = "https://dflix.discoveryftp.net"
@@ -122,16 +124,89 @@ class DflixProvider : MainAPI() {
         }
     }
 
+    private fun diceCoefficient(s1: String, s2: String): Double {
+        val n1 = s1.lowercase().replace(Regex("[^a-z0-9]"), "")
+        val n2 = s2.lowercase().replace(Regex("[^a-z0-9]"), "")
+        if (n1 == n2) return 1.0
+        if (n1.isEmpty() || n2.isEmpty()) return 0.0
+        
+        val set1 = n1.zipWithNext { a, b -> "$a$b" }.toSet()
+        val set2 = n2.zipWithNext { a, b -> "$a$b" }.toSet()
+        if (set1.isEmpty() || set2.isEmpty()) return if (n1.contains(n2) || n2.contains(n1)) 0.5 else 0.0
+        
+        val intersect = set1.intersect(set2).size
+        return 2.0 * intersect / (set1.size + set2.size)
+    }
+
+    private fun toSearchResult(post: Element): SearchResponse? {
+        val aTag = post.selectFirst("a") ?: return null
+        val url = fixUrl(aTag.attr("href"))
+        var title = post.selectFirst(".searchtitle")?.text()?.trim() ?: return null
+        val poster = fixUrl(post.selectFirst("img")?.attr("src") ?: "")
+        
+        val details = post.selectFirst(".searchdetails")?.text() ?: ""
+        if (details.contains("4K", ignoreCase = true) && !title.contains("4K", ignoreCase = true)) {
+            title = "$title 4K"
+        }
+
+        val type = if (url.contains("/s/view/")) TvType.TvSeries else TvType.Movie
+
+        return newAnimeSearchResponse(title, url, type) {
+            this.posterUrl = poster
+            addDubStatus(
+                dubExist = details.contains("DUAL", true),
+                subExist = false
+            )
+        }
+    }
+
     override suspend fun search(query: String): List<SearchResponse> {
         login()
-        val movieDoc = try { app.get(fixUrl("/m/find/$query"), cookies = loginCookie, headers = commonHeaders).document } catch(e: Exception) { null }
-        val seriesDoc = try { app.get(fixUrl("/s/find/$query"), cookies = loginCookie, headers = commonHeaders).document } catch(e: Exception) { null }
         
-        val results = mutableListOf<SearchResponse>()
-        movieDoc?.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard, .moviegrid .card")?.forEach { results.add(toResult(it) ?: return@forEach) }
-        seriesDoc?.select("div.card, div.fgrid, div.col-xl-3, div.col-xl-4, div.fcard, .moviegrid .card")?.forEach { results.add(toResult(it) ?: return@forEach) }
-        
-        return results.distinctBy { it.url }
+        return coroutineScope {
+            val movieRequest = async {
+                try {
+                    app.post(
+                        "$mainUrl/search",
+                        data = mapOf("term" to query, "types" to "m"),
+                        cookies = loginCookie,
+                        headers = commonHeaders
+                    ).document
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            
+            val seriesRequest = async {
+                try {
+                    app.post(
+                        "$mainUrl/search",
+                        data = mapOf("term" to query, "types" to "s"),
+                        cookies = loginCookie,
+                        headers = commonHeaders
+                    ).document
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            
+            val movieDoc = movieRequest.await()
+            val seriesDoc = seriesRequest.await()
+            
+            val results = mutableListOf<SearchResponse>()
+            
+            movieDoc?.select(".moviesearchiteam")?.forEach { 
+                results.add(toSearchResult(it) ?: return@forEach)
+            }
+            
+            seriesDoc?.select(".moviesearchiteam")?.forEach { 
+                results.add(toSearchResult(it) ?: return@forEach)
+            }
+            
+            results.distinctBy { it.url }.sortedByDescending { 
+                diceCoefficient(query, it.name)
+            }
+        }
     }
 
     override suspend fun load(url: String): LoadResponse? {
